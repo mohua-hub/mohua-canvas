@@ -9,3 +9,9 @@ data/
 *.tsbuildinfo
 .DS_Store
 .idea
+/src-tauri/target/
+/src-tauri/gen/
+/src-tauri/binaries/
+/src-tauri/resources/
+/src-tauri/icons/android/
+/src-tauri/icons/ios/
