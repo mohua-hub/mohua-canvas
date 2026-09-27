@@ -1,12 +1,13 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import { type ChangeEvent, useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useRef, useState } from "react";
 import { App, Button, Image, Tag } from "antd";
+import { useQuery } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 import { useRouter } from "next/navigation";
 
-import { fetchPrompts, type Prompt } from "@/services/api/prompts";
+import { fetchPrompts } from "@/services/api/prompts";
 import { cn } from "@/lib/utils";
 import { uploadAssetMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
@@ -56,7 +57,10 @@ export default function IndexPage() {
     const effectiveConfig = useEffectiveConfig();
     const createProject = useCanvasStore((state) => state.createProject);
     const hydrated = useCanvasStore((state) => state.hydrated);
-    const [promptShowcase, setPromptShowcase] = useState<Prompt[]>([]);
+    const { data: promptShowcase = [], isError: promptShowcaseUnavailable } = useQuery({
+        queryKey: ["home-prompts"],
+        queryFn: async () => (await fetchPrompts({ pageSize: 12 })).items,
+    });
     const [previewIndex, setPreviewIndex] = useState(0);
     const [previewOpen, setPreviewOpen] = useState(false);
     const [prompt, setPrompt] = useState("");
@@ -74,12 +78,6 @@ export default function IndexPage() {
     }));
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const pendingAssetCountsRef = useRef<Record<InsertAssetPayload["kind"], number>>({ text: 0, image: 0, video: 0, audio: 0 });
-
-    useEffect(() => {
-        void fetchPrompts({ pageSize: 12 })
-            .then((data) => setPromptShowcase(data.items))
-            .catch((error) => message.error(error instanceof Error ? error.message : "获取提示词失败"));
-    }, [message]);
 
     const addPendingAsset = (payload: InsertAssetPayload) => {
         const asset = toPendingAgentAsset(payload, canvasResourceLabel(payload.kind, pendingAssetCountsRef.current[payload.kind]++));
@@ -175,6 +173,11 @@ export default function IndexPage() {
                             提示词库
                         </Button>
                     </div>
+                    {promptShowcaseUnavailable ? (
+                        <p role="status" className="py-8 text-center text-sm text-stone-500 dark:text-stone-400">
+                            提示词展示暂不可用，画布和本地素材仍可使用。提示词库、登录及云端功能需要连接后端服务。
+                        </p>
+                    ) : null}
                     <div className="grid auto-rows-[210px] gap-4 md:grid-cols-4">
                         {promptShowcase.map((item, index) => (
                             <button

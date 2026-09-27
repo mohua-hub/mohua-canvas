@@ -35,7 +35,9 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     }, [message]);
 
     useEffect(() => {
-        void loadPublicSettings();
+        void loadPublicSettings().catch(() => {
+            // 后端不可用时保留本地配置，不让可选的启动请求成为未处理异常。
+        });
     }, [loadPublicSettings]);
 
     useEffect(() => {
