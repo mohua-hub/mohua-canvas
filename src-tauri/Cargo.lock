@@ -2075,7 +2075,7 @@ dependencies = [
 
 [[package]]
 name = "mohua-canvas"
-version = "0.1.1"
+version = "0.1.3"
 dependencies = [
  "flate2",
  "serde",

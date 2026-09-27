@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.1.3
+
++ [修复] 同步 Tauri Cargo 锁文件版本，修复 GitHub Actions 打包前锁文件校验失败
+
 ## v0.1.2
 
 + [修复] 首页提示词服务不可用时改为区域提示
