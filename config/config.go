@@ -3,6 +3,7 @@ package config
 import (
 	"crypto/rand"
 	"encoding/base64"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +35,7 @@ func Load() error {
 	}
 	normalizeDockerSQLiteDSN("/app/data")
 	if strings.TrimSpace(Cfg.JWTSecret) == "" || Cfg.JWTSecret == "infinite-canvas" {
-		secret, err := randomSecret()
+		secret, err := loadJWTSecret()
 		if err != nil {
 			return err
 		}
@@ -76,4 +77,27 @@ func randomSecret() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func loadJWTSecret() (string, error) {
+	if os.Getenv("MOHUA_DESKTOP") != "1" {
+		return randomSecret()
+	}
+	path := filepath.Join(filepath.Dir(Cfg.DatabaseDSN), ".jwt-secret")
+	data, err := os.ReadFile(path)
+	if err == nil {
+		secret := strings.TrimSpace(string(data))
+		if secret == "" {
+			return "", errors.New("桌面登录密钥文件为空")
+		}
+		return secret, nil
+	}
+	if !os.IsNotExist(err) {
+		return "", err
+	}
+	secret, err := randomSecret()
+	if err != nil {
+		return "", err
+	}
+	return secret, os.WriteFile(path, []byte(secret), 0600)
 }

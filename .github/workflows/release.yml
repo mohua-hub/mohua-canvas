@@ -47,6 +47,9 @@ jobs:
         with:
           bun-version: '1.4.2'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: src-tauri -> target

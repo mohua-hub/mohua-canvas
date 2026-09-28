@@ -41,6 +41,10 @@ function prepareRuntime() {
     mkdirSync(join(tauri, "binaries"), { recursive: true });
     mkdirSync(join(tauri, "resources"), { recursive: true });
     copyFileSync(process.execPath, join(tauri, "binaries", `node-${target}${process.platform === "win32" ? ".exe" : ""}`));
+    const serverOutput = join(tauri, "binaries", `server-${target}${process.platform === "win32" ? ".exe" : ""}`);
+    run("go", ["build", "-trimpath", "-ldflags=-s -w", "-o", serverOutput, "."], {
+        env: { ...process.env, GOOS: process.platform === "win32" ? "windows" : process.platform, GOARCH: process.arch === "x64" ? "amd64" : "arm64", CGO_ENABLED: "0" },
+    });
     writeFileSync(join(tauri, "resources", "desktop-build.json"), JSON.stringify({ version, buildId: "development" }));
 }
 
@@ -72,8 +76,8 @@ if (command === "prepare") {
     }, ["."]);
     const buildId = readFileSync(join(web, ".next", "BUILD_ID"), "utf8").trim();
     writeFileSync(join(tauri, "resources", "desktop-build.json"), JSON.stringify({ version, buildId }));
-    console.log(`已打包 Next standalone、静态资源与 Node ${process.version}`);
+    console.log(`已打包 Next standalone、静态资源、Node ${process.version} 与 Go 后端`);
 } else if (command !== "sync") {
-    if (command === "dev" || command === "build") prepareRuntime();
+    if (command === "dev") prepareRuntime();
     run(process.execPath, [join(web, "node_modules", "@tauri-apps", "cli", "tauri.js"), command, ...args]);
 }
