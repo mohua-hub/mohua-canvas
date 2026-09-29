@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Mohua Canvas",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "identifier": "com.mohua.canvas",
   "build": {
     "beforeDevCommand": {
@@ -28,12 +28,17 @@
       }
     ],
     "security": {
-      "capabilities": ["default"]
+      "capabilities": [
+        "default"
+      ]
     }
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis", "msi"],
+    "targets": [
+      "nsis",
+      "msi"
+    ],
     "externalBin": [
       "binaries/node",
       "binaries/server"
@@ -57,7 +62,9 @@
   "plugins": {
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyRkQ2NTZFRDdBNDlGNDMKUldSRG42VFhibVg5TWwrSHYzWnNMZ1pQWGVnamwwcnlySzZEUlBjZVc1Y09Ja2tRd3RLdUJuM2EK",
-      "endpoints": ["https://github.com/mohua-hub/mohua-canvas/releases/latest/download/latest.json"]
+      "endpoints": [
+        "https://github.com/mohua-hub/mohua-canvas/releases/latest/download/latest.json"
+      ]
     }
   }
 }
