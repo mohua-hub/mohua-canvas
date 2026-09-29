@@ -55,7 +55,12 @@ func InspectRunningHub(ctx context.Context, input RunningHubInspectInput) (model
 	}
 	endpoint, body := "/api/openapi/getJsonApiFormat", map[string]any{"apiKey": input.APIKey, "workflowId": input.WorkflowID}
 	if input.Kind == "app" {
-		endpoint, body = "/api/webapp/apiCallDemo", map[string]any{"apiKey": input.APIKey, "webappId": input.WorkflowID}
+		var response map[string]any
+		query := url.Values{"apiKey": {input.APIKey}, "webappId": {input.WorkflowID}}
+		if err := runningHubGetRequest(ctx, root+"/api/webapp/apiCallDemo", query, input.APIKey, &response); err != nil {
+			return model.WorkflowEntry{}, fmt.Errorf("拉取 RunningHub 参数失败：%w", err)
+		}
+		return runningHubAppEntry(input, response)
 	}
 	var response map[string]any
 	if err := runningHubRequest(ctx, root+endpoint, body, &response, nil); err != nil {
@@ -72,10 +77,6 @@ func InspectRunningHub(ctx context.Context, input RunningHubInspectInput) (model
 	if entry.Title == "" {
 		entry.Title = input.WorkflowID
 	}
-	if input.Kind == "app" {
-		entry.Fields = runningHubAppFields(data["nodeInfoList"], input.Capability)
-		return entry, nil
-	}
 	workflow := map[string]any{}
 	switch prompt := data["prompt"].(type) {
 	case string:
@@ -90,6 +91,29 @@ func InspectRunningHub(ctx context.Context, input RunningHubInspectInput) (model
 	entry.WorkflowJSON = workflow
 	entry.Fields = discoverWorkflowFields(workflow, input.Capability)
 	return entry, nil
+}
+
+func runningHubAppEntry(input RunningHubInspectInput, response map[string]any) (model.WorkflowEntry, error) {
+	if code, ok := runningHubResponseCode(response); ok && code != 0 {
+		return model.WorkflowEntry{}, fmt.Errorf("拉取 RunningHub 参数失败：%s", runningHubResponseMessage(response))
+	}
+	data, ok := response["data"].(map[string]any)
+	if !ok {
+		return model.WorkflowEntry{}, errors.New("RunningHub 参数响应缺少 data")
+	}
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		title = input.WorkflowID
+	}
+	return model.WorkflowEntry{
+		Provider:   "runninghub",
+		Kind:       "app",
+		WorkflowID: input.WorkflowID,
+		Title:      title,
+		Capability: input.Capability,
+		Enabled:    true,
+		Fields:     runningHubAppFields(data["nodeInfoList"], input.Capability),
+	}, nil
 }
 
 func runningHubBaseURL(value string) (string, error) {
@@ -111,28 +135,56 @@ func runningHubBaseURL(value string) (string, error) {
 }
 
 func runningHubRequest(ctx context.Context, endpoint string, payload any, target *map[string]any, capture *AICallLogInput) error {
+	apiKey := ""
+	if body, ok := payload.(map[string]any); ok {
+		apiKey, _ = body["apiKey"].(string)
+	}
+	return runningHubRequestMethod(ctx, http.MethodPost, endpoint, nil, payload, apiKey, target, capture)
+}
+
+func runningHubGetRequest(ctx context.Context, endpoint string, query url.Values, apiKey string, target *map[string]any) error {
+	return runningHubRequestMethod(ctx, http.MethodGet, endpoint, query, nil, apiKey, target, nil)
+}
+
+func runningHubRequestMethod(ctx context.Context, method, endpoint string, query url.Values, payload any, apiKey string, target *map[string]any, capture *AICallLogInput) error {
 	ctx, cancel := context.WithTimeout(ctx, 40*time.Second)
 	defer cancel()
 	if capture != nil {
-		capture.Endpoint, capture.Method = endpoint, http.MethodPost
+		capture.Endpoint, capture.Method = endpoint, method
 		capture.Status, capture.RequestBody, capture.ResponseBody = 0, "", ""
 	}
-	encoded, err := json.Marshal(payload)
+	requestURL, err := url.Parse(endpoint)
 	if err != nil {
 		return err
 	}
+	if len(query) > 0 {
+		requestURL.RawQuery = query.Encode()
+	}
+	var requestBody io.Reader
 	secret := ""
-	if capture != nil {
+	if payload != nil {
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		requestBody = bytes.NewReader(encoded)
 		if body, ok := payload.(map[string]any); ok {
 			secret, _ = body["apiKey"].(string)
 		}
-		capture.RequestBody = string(workflowLogJSON(string(encoded), secret))
+		if capture != nil {
+			capture.RequestBody = string(workflowLogJSON(string(encoded), secret))
+		}
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(encoded))
+	request, err := http.NewRequestWithContext(ctx, method, requestURL.String(), requestBody)
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	if payload != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if strings.TrimSpace(apiKey) != "" {
+		request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
+	}
 	response, err := SafeProxyHTTPClient().Do(request)
 	if err != nil {
 		return errors.New("上游接口无响应或不可达")

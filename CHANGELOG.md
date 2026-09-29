@@ -2,6 +2,8 @@
 
 ## Unreleased
 
++ [修复] 按 RunningHub 文档修正 App 参数拉取方式与 Bearer 鉴权，显示上游错误信息
+
 ## v0.1.5
 
 + [调整] 桌面端仅提供 Windows 安装包，停止构建 macOS 与 Linux 应用

@@ -16,7 +16,7 @@ func RunningHubInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	entry, err := service.InspectRunningHub(r.Context(), input)
 	if err != nil {
-		FailError(w, err)
+		Fail(w, err.Error())
 		return
 	}
 	OK(w, entry)
@@ -34,7 +34,7 @@ func AdminRunningHubInspect(w http.ResponseWriter, r *http.Request) {
 	}
 	entry, err := service.InspectAdminRunningHub(r.Context(), request.Index, request.Channel, request.Input)
 	if err != nil {
-		FailError(w, err)
+		Fail(w, err.Error())
 		return
 	}
 	OK(w, entry)

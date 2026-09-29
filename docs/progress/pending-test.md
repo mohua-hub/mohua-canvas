@@ -13,6 +13,7 @@ description: 当前版本已实现但仍需人工验证的变更项
 
 - 新增 RunningHub 工作流和 ComfyUI Bridge 渠道，后台与本地配置支持工作流发现、字段映射和任务执行；需确认桌面包中的 Bridge 下载文件能在目标设备连接本机 ComfyUI，并完成检查、生成、轮询、断连恢复和媒体预览。
 - 确认 RunningHub Base URL、API Key、工作流检查与字段覆盖，在图片、视频和音频入口执行并轮询结果；桌面内置后端重启后核实未完成任务恢复。配置远程 `API_BASE_URL` 时，确认 Bridge 启动命令使用可从 Bridge 设备访问的后端地址。
+- 确认 RunningHub App 参数拉取使用 GET 查询参数，Workflow/App 提交、查询和素材上传均能通过 Bearer API Key 鉴权；上游鉴权或参数错误应显示具体错误信息。
 
 ## 桌面自动更新
 

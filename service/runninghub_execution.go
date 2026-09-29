@@ -331,6 +331,7 @@ func uploadRunningHubReference(ctx context.Context, root, apiKey, raw string, ca
 		return "", err
 	}
 	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set("Authorization", "Bearer "+strings.TrimSpace(apiKey))
 	response, err := SafeProxyHTTPClient().Do(request)
 	if err != nil {
 		return "", errors.New("RunningHub 素材上传接口不可达")
