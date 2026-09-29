@@ -49,10 +49,14 @@ function prepareRuntime() {
 }
 
 const [command = "dev", ...args] = process.argv.slice(2);
+if (command === "build" && process.platform !== "win32") {
+    throw new Error("墨华画布桌面安装包仅支持在 Windows 上构建");
+}
 syncVersion();
 
 if (command === "prepare") {
     prepareRuntime();
+    run("bun", ["run", "build:bridge"], { cwd: web });
     run(process.execPath, [require.resolve("next/dist/bin/next"), "build"], {
         cwd: web,
         env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" },
@@ -76,7 +80,7 @@ if (command === "prepare") {
     }, ["."]);
     const buildId = readFileSync(join(web, ".next", "BUILD_ID"), "utf8").trim();
     writeFileSync(join(tauri, "resources", "desktop-build.json"), JSON.stringify({ version, buildId }));
-    console.log(`已打包 Next standalone、静态资源、Node ${process.version} 与 Go 后端`);
+    console.log(`已打包 Next standalone、ComfyUI Bridge、Node ${process.version} 与 Go 后端`);
 } else if (command !== "sync") {
     if (command === "dev") prepareRuntime();
     run(process.execPath, [join(web, "node_modules", "@tauri-apps", "cli", "tauri.js"), command, ...args]);

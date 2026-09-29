@@ -15,7 +15,9 @@ description: Tauri 2 与 Next.js standalone 桌面端运行及 GitHub 打包流�
 
 如需使用已有的本地或远程后端，在启动桌面进程前设置 `API_BASE_URL`（例如 `http://127.0.0.1:8080`），桌面端将只连接指定后端。构建时的环境变量和仓库 `.env` 不会自动成为安装后应用的配置；需要从设置了环境变量的终端启动应用。
 
-内置数据库首次为空，不会包含开发环境或其他服务器的提示词和渠道。默认管理员为 `admin` / `infinite-canvas`，可通过启动环境中的 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 指定首次管理员；登录管理后台后同步提示词分类并配置渠道。未登录的画布项目和“我的素材”仍保存在桌面 WebView 本地；登录并启用账号同步后保存在当前后端，内置后端的数据仍在本机，跨设备同步需连接同一个远程后端。未登录直连的 AI API Key 保存在 WebView 本地，由前端请求 OpenAI 兼容接口，仍依赖上游允许 CORS；登录后的渠道同步及转译沿用项目现有规则。安装包不包含 canvas-agent。
+内置数据库首次为空，不会包含开发环境或其他服务器的提示词和渠道。默认管理员为 `admin` / `infinite-canvas`，可通过启动环境中的 `ADMIN_USERNAME`、`ADMIN_PASSWORD` 指定首次管理员；登录管理后台后同步提示词分类并配置渠道。未登录的画布项目和“我的素材”仍保存在桌面 WebView 本地；登录并启用账号同步后保存在当前后端，内置后端的数据仍在本机，跨设备同步需连接同一个远程后端。未登录直连的 AI API Key 保存在 WebView 本地，由前端请求 OpenAI 兼容接口，仍依赖上游允许 CORS；登录后的渠道同步及转译沿用项目现有规则。
+
+桌面安装包会打入 ComfyUI Bridge 的 Windows x64 与 Linux x64 / ARM64 下载文件。Bridge 需要在能访问 ComfyUI 的设备上单独启动。使用内置后端时，该设备需与桌面应用在同一台电脑；连接远程后端时，桌面端生成的启动命令会使用远程 `API_BASE_URL`，该地址必须能从 Bridge 设备访问。安装包不包含 canvas-agent 服务。
 
 首页提示词是可选的服务端内容，读取失败时会在展示区域提示，不阻断本地画布。后台公共配置启动请求失败时沿用现有本地配置。登录和云端功能仍需要真实可用的后端。
 
@@ -23,7 +25,13 @@ description: Tauri 2 与 Next.js standalone 桌面端运行及 GitHub 打包流�
 
 ## 开发与本地打包
 
-需要 Node 22、Bun 1.4.2、Go 1.25、Rust stable，以及 Tauri 所需系统开发依赖：Windows 的 MSVC C++ Build Tools 和 WebView2，macOS 的 Xcode Command Line Tools，Linux 的 WebKitGTK 4.1 等。构建需要联网安装依赖，发布电脑无需安装开发工具。
+桌面安装包仅支持 Windows x64。构建需要 Node 22、Bun 1.4.2、Go 1.25、Rust stable、Windows MSVC C++ Build Tools 和 WebView2；macOS/Linux 的桌面开发运行仍需对应的 Tauri 系统依赖，但不支持构建安装包。构建需要联网安装依赖，发布电脑无需安装开发工具。
+
+### 桌面自动更新
+
+应用内更新仅适用于 Windows NSIS `.exe`；Windows MSI 通过 GitHub Release 手动更新。v0.1.4 及更早版本没有更新器，需先手动安装第一个带更新器的 NSIS 版本，此后才可在版本更新窗口下载、安装并重启。
+
+发布前生成 Tauri 更新密钥对，并将私钥文件内容保存到 GitHub 仓库 Settings → Secrets and variables → Actions，Secret 名称为 `TAURI_SIGNING_PRIVATE_KEY`。当前机器生成的私钥保存在 `%LOCALAPPDATA%\MohuaCanvas\tauri-updater.key`；公钥已写入 Tauri 配置，私钥不能提交或上传为 Release 附件。Release workflow 只为 Windows NSIS 包签名并写入 `latest.json`，Windows MSI 仍通过 Release 手动更新。签名密钥丢失或更换后，已有安装无法验证新密钥签署的更新；更换密钥需要用户手动安装新版本。
 
 在 `web` 目录运行：
 
@@ -38,7 +46,7 @@ bun run tauri:dev
 bun run tauri:build
 ```
 
-构建入口 `scripts/desktop.mjs` 会读取根目录 `VERSION`，同步 `web/package.json`、`src-tauri/Cargo.toml` 和 Tauri 配置，再构建 Next、Go 后端，复制 `public`、`.next/static` 和启动脚本，将其压缩为 Tauri 资源。Node 和 Go 可执行文件按 Tauri 目标命名，作为 sidecar 一并打包；必须在目标操作系统和架构上使用原生 Node，不能用 x64 Node 打包 ARM64 应用。Go 构建显式设置与 Node 对应的 `GOOS` / `GOARCH` 并关闭 CGO。Next 的 `.env*` 文件与构建缓存不进入资源包。
+构建入口 `scripts/desktop.mjs` 会读取根目录 `VERSION`，同步 `web/package.json`、`src-tauri/Cargo.toml` 和 Tauri 配置，再构建 Go 后端、ComfyUI Bridge 与 Next，复制 `public`、`.next/static` 和启动脚本，将其压缩为 Tauri 资源。Node 和 Go 可执行文件按 Tauri 目标命名，作为 sidecar 一并打包；必须在目标操作系统和架构上使用原生 Node，不能用 x64 Node 打包 ARM64 应用。Go 构建显式设置与 Node 对应的 `GOOS` / `GOARCH` 并关闭 CGO。Next 的 `.env*` 文件与构建缓存不进入资源包。
 
 生成目录：
 
@@ -57,15 +65,12 @@ node web/node_modules/@tauri-apps/cli/tauri.js icon desktop/icon.svg --output sr
 1. 将 `CHANGELOG.md` 的 `Unreleased` 内容整理到新版本标题下，保留空 `Unreleased`。
 2. 更新根目录 `VERSION`，执行 `node scripts/desktop.mjs sync` 同步版本。
 3. 提交发布内容，创建与 `VERSION` 一致的 `vX.Y.Z` 标签并推送。
-4. `Release Desktop` 工作流构建全部平台；全部成功后创建 Release 并上传安装包，任一平台失败则暂停发布。
+4. `Release Desktop` 工作流只构建 Windows x64 的 NSIS 与 MSI 安装包，为 NSIS 包签名并生成 `latest.json`；构建成功后创建 Release 并上传安装包与更新清单。
 
 工作流使用 `web/bun.lock` 和 `src-tauri/Cargo.lock` 锁定依赖，版本必须与标签一致。手动运行时可留空标签，仅构建所选分支并保存 Actions artifacts；指定已存在的标签时才发布 Release，避免把分支名误当成版本发布。同一标签重跑会覆盖同名附件。
 
 | 平台 | 安装包 |
 | --- | --- |
 | Windows x64 | `.exe`（NSIS）、`.msi` |
-| macOS Intel x64 | `.dmg` |
-| macOS Apple Silicon ARM64 | `.dmg` |
-| Linux x64 | `.AppImage`、`.deb` |
 
-当前未配置 Windows 开发者证书及 macOS Developer ID、公证，macOS 使用临时签名。系统可能要求用户确认运行来源；当前不会承诺已通过平台信任验证，也未接入自动更新。
+Windows 尚未配置开发者证书，系统可能显示来源确认。Tauri 更新签名只验证更新包完整性，不替代平台证书签名。

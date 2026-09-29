@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { App } from "antd";
 import { APP_VERSION, PROJECT_REPOSITORY } from "@/constant/env";
 import { parseChangelog, type ReleaseInfo } from "@/lib/release";
+import { useDesktopUpdater } from "@/hooks/use-desktop-updater";
 
 const latestVersionUrl = `https://raw.githubusercontent.com/${PROJECT_REPOSITORY}/main/VERSION`;
 const latestChangelogUrl = `https://raw.githubusercontent.com/${PROJECT_REPOSITORY}/main/CHANGELOG.md`;
@@ -34,6 +35,7 @@ export function useVersionCheck() {
     const [releases, setReleases] = useState<ReleaseInfo[]>(localReleases);
     const [checking, setChecking] = useState(false);
     const [open, setOpen] = useState(false);
+    const desktopUpdater = useDesktopUpdater();
     const hasNewVersion = isNewerVersion(latestVersion, currentVersion);
 
     const checkLatestVersion = useCallback(async () => {
@@ -79,7 +81,8 @@ export function useVersionCheck() {
     const openReleaseModal = useCallback(() => {
         setOpen(true);
         void checkLatestRelease();
-    }, [checkLatestRelease]);
+        void desktopUpdater.checkForUpdate();
+    }, [checkLatestRelease, desktopUpdater.checkForUpdate]);
 
     return {
         open,
@@ -87,8 +90,9 @@ export function useVersionCheck() {
         openReleaseModal,
         latestVersion,
         releases,
-        checking,
+        checkingRelease: checking,
         hasNewVersion,
         checkLatestRelease,
+        ...desktopUpdater,
     };
 }

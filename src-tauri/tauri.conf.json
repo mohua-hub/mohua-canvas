@@ -20,7 +20,7 @@
       {
         "label": "main",
         "dragDropEnabled": false,
-        "title": "墨画画布",
+        "title": "墨华画布",
         "width": 1440,
         "height": 900,
         "minWidth": 960,
@@ -28,12 +28,12 @@
       }
     ],
     "security": {
-      "capabilities": []
+      "capabilities": ["default"]
     }
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis", "msi"],
     "externalBin": [
       "binaries/node",
       "binaries/server"
@@ -52,6 +52,12 @@
       "signingIdentity": "-",
       "minimumSystemVersion": "11.0",
       "hardenedRuntime": false
+    }
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMyRkQ2NTZFRDdBNDlGNDMKUldSRG42VFhibVg5TWwrSHYzWnNMZ1pQWGVnamwwcnlySzZEUlBjZVc1Y09Ja2tRd3RLdUJuM2EK",
+      "endpoints": ["https://github.com/mohua-hub/mohua-canvas/releases/latest/download/latest.json"]
     }
   }
 }

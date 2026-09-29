@@ -1,7 +1,7 @@
 "use client";
 
 import type { CSSProperties } from "react";
-import { Modal, Tag, Timeline } from "antd";
+import { Button, Modal, Progress, Tag, Timeline, Typography } from "antd";
 import { useVersionCheck } from "@/hooks/use-version-check";
 import { APP_VERSION } from "@/constant/env";
 
@@ -36,7 +36,7 @@ type VersionReleaseModalProps = {
 };
 
 export function VersionReleaseModal({ className, style }: VersionReleaseModalProps) {
-    const { open, setOpen, openReleaseModal, latestVersion, releases, checking, hasNewVersion, checkLatestRelease } = useVersionCheck();
+    const { open, setOpen, openReleaseModal, latestVersion, releases, checkingRelease, hasNewVersion, checkLatestRelease, supported: desktopUpdaterSupported, checking: checkingUpdater, installing, update, progress, error: updaterError, checkForUpdate, installUpdate } = useVersionCheck();
 
     return (
         <>
@@ -64,14 +64,32 @@ export function VersionReleaseModal({ className, style }: VersionReleaseModalPro
                             <button
                                 type="button"
                                 className="cursor-pointer bg-transparent p-0 text-[11px] font-normal text-stone-400 underline-offset-2 transition hover:text-stone-700 hover:underline dark:text-stone-500 dark:hover:text-stone-300"
-                                onClick={() => void checkLatestRelease(true)}
+                                onClick={() => { void checkLatestRelease(true); void checkForUpdate(); }}
                             >
-                                {checking ? "检查中..." : "检查更新"}
+                                {checkingRelease ? "检查中..." : "检查更新"}
                             </button>
                         </div>
                         <div className="mt-1 text-base font-semibold text-stone-950 dark:text-stone-100">{latestVersion}</div>
                     </div>
                 </div>
+                {desktopUpdaterSupported ? (
+                    <div className="mb-5 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                                <div className="text-sm font-medium text-stone-950 dark:text-stone-100">桌面应用更新</div>
+                                <Typography.Text type="secondary">
+                                    {checkingUpdater ? "正在检查更新…" : update ? `发现新版本 ${update.version}` : updaterError || (desktopUpdaterSupported ? "当前已是最新版本" : "")}
+                                </Typography.Text>
+                            </div>
+                            <div className="flex gap-2">
+                                {!update && !installing ? <Button size="small" onClick={() => void checkForUpdate()} loading={checkingUpdater}>检查更新</Button> : null}
+                                {update ? <Button type="primary" size="small" loading={installing} onClick={() => void installUpdate()}>{installing ? "正在安装…" : `下载并安装 ${update.version}`}</Button> : null}
+                            </div>
+                        </div>
+                        {progress ? <Progress className="!mb-0 !mt-2" percent={progress.total ? Math.min(100, Math.round(progress.downloaded / progress.total * 100)) : undefined} status="active" format={() => progress.total ? `${Math.min(100, Math.round(progress.downloaded / progress.total * 100))}%` : `${(progress.downloaded / 1024 / 1024).toFixed(1)} MB`} /> : null}
+                        {update?.body ? <div className="mt-2 whitespace-pre-wrap text-xs leading-5 text-stone-500 dark:text-stone-400">{update.body}</div> : null}
+                    </div>
+                ) : null}
                 <div className="max-h-[56vh] overflow-y-auto pr-2">
                     <Timeline
                         items={releases.map((release) => ({

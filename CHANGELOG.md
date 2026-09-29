@@ -2,6 +2,11 @@
 
 ## Unreleased
 
++ [调整] 桌面端仅提供 Windows 安装包，停止构建 macOS 与 Linux 应用
++ [新增] 桌面端 Windows NSIS 安装包支持签名自动更新
++ [调整] 桌面端产品名称统一为墨华画布
++ [新增] 渠道支持 RunningHub 工作流与 ComfyUI Bridge
+
 ## v0.1.4
 
 + [修复] 桌面端安装包内置并启动 Go 后端，恢复提示词、登录、设置及渠道接口连接

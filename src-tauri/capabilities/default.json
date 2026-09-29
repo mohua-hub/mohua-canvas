@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Updater access for the main desktop window",
+  "windows": ["main"],
+  "permissions": ["core:app:allow-bundle-type", "updater:default", "process:allow-restart"]
+}

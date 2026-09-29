@@ -87,6 +87,7 @@ async fn start_server(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::E
     });
 
     let mut api_base_url = std::env::var("API_BASE_URL").ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+    let bridge_server_url = api_base_url.clone().unwrap_or_default();
     if api_base_url.is_none() {
         let data_dir = app.path().app_data_dir()?;
         fs::create_dir_all(&data_dir)?;
@@ -110,6 +111,8 @@ async fn start_server(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::E
                 .current_dir(&runtime)
                 .env("NODE_ENV", "production")
                 .env("NEXT_TELEMETRY_DISABLED", "1")
+                .env("MOHUA_DESKTOP", "1")
+                .env("MOHUA_BRIDGE_SERVER_URL", &bridge_server_url)
                 .env("API_BASE_URL", url)
                 .spawn()?;
             app.state::<Server>().add(child);
@@ -153,6 +156,8 @@ fn main() {
         }))
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(Server::default())
         .setup(|app| {
             #[cfg(not(dev))]
@@ -167,7 +172,7 @@ fn main() {
                         handle.state::<Server>().stop();
                         let exit_handle = handle.clone();
                         handle.dialog().message(format!("桌面端启动或运行失败：{error}"))
-                            .title("墨画画布")
+                            .title("墨华画布")
                             .kind(MessageDialogKind::Error)
                             .show(move |_| exit_handle.exit(1));
                     }
