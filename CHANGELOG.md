@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## v0.1.6
+
 + [修复] 按 RunningHub 文档修正 App 参数拉取方式与 Bearer 鉴权，显示上游错误信息
 
 ## v0.1.5
