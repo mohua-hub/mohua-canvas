@@ -63,7 +63,7 @@ node web/node_modules/@tauri-apps/cli/tauri.js icon desktop/icon.svg --output sr
 1. 将 `CHANGELOG.md` 的 `Unreleased` 内容整理到新版本标题下，保留空 `Unreleased`。
 2. 更新根目录 `VERSION`，执行 `node scripts/desktop.mjs sync` 同步版本。
 3. 提交发布内容，创建与 `VERSION` 一致的 `vX.Y.Z` 标签并推送。
-4. `Release Desktop` 工作流只构建 Windows x64 的 NSIS 与 MSI 安装包，为 NSIS 包签名；构建成功后创建草稿 Release 并上传安装包，通过 GitHub 返回的真实附件地址生成并上传 `latest.json`，最后公开发布 Release。
+4. `Release Desktop` 工作流只构建 Windows x64 的 NSIS 与 MSI 安装包，为 NSIS 包签名；构建成功后创建草稿 Release 并上传安装包，公开发布后读取 GitHub 的正式附件地址，再生成并上传 `latest.json`。草稿阶段的下载地址包含临时标签，不能写入更新清单。
 
 工作流使用 `web/bun.lock` 和 `src-tauri/Cargo.lock` 锁定依赖，版本必须与标签一致。手动运行时可留空标签，仅构建所选分支并保存 Actions artifacts；指定已存在的标签时才发布 Release，避免把分支名误当成版本发布。同一标签重跑会覆盖同名附件。
 

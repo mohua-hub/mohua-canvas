@@ -3,7 +3,9 @@ import { basename, join } from "node:path";
 
 const [tag, artifactsDir, releaseFile] = process.argv.slice(2);
 if (!tag || !artifactsDir || !releaseFile) throw new Error("Usage: node scripts/create-updater-manifest.mjs <tag> <artifacts-dir> <release-json>");
-const releaseAssets = JSON.parse(await readFile(releaseFile, "utf8")).assets;
+const releaseMetadata = JSON.parse(await readFile(releaseFile, "utf8"));
+if (releaseMetadata.draft) throw new Error("Publish the GitHub Release before generating updater URLs");
+const releaseAssets = releaseMetadata.assets;
 
 async function listFiles(directory) {
     const entries = await readdir(directory, { withFileTypes: true });

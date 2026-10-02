@@ -103,8 +103,8 @@ jobs:
           else
             gh release create "$RELEASE_TAG" "${packages[@]}" --draft --verify-tag --title "Mohua Canvas $RELEASE_TAG" --notes-file release-notes.md
           fi
+          gh release edit "$RELEASE_TAG" --draft=false
           release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq '.databaseId')"
           gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > release.json
           node scripts/create-updater-manifest.mjs "$RELEASE_TAG" installers release.json
           gh release upload "$RELEASE_TAG" installers/latest.json --clobber
-          gh release edit "$RELEASE_TAG" --draft=false
