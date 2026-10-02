@@ -87,10 +87,6 @@ jobs:
           pattern: desktop-*
           path: installers
           merge-multiple: true
-      - name: Generate updater manifest
-        env:
-          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-        run: node scripts/create-updater-manifest.mjs "$RELEASE_TAG" installers
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -98,9 +94,17 @@ jobs:
         shell: bash
         run: |
           node scripts/release-notes.mjs "$RELEASE_TAG" > release-notes.md
-          mapfile -d '' packages < <(find installers -type f -print0)
+          packages=()
+          while IFS= read -r -d '' package_path; do
+            packages+=("$package_path#$(basename "$package_path")")
+          done < <(find installers -type f -print0)
           if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
             gh release upload "$RELEASE_TAG" "${packages[@]}" --clobber
           else
-            gh release create "$RELEASE_TAG" "${packages[@]}" --verify-tag --title "Mohua Canvas $RELEASE_TAG" --notes-file release-notes.md
+            gh release create "$RELEASE_TAG" "${packages[@]}" --draft --verify-tag --title "Mohua Canvas $RELEASE_TAG" --notes-file release-notes.md
           fi
+          release_id="$(gh release view "$RELEASE_TAG" --json databaseId --jq '.databaseId')"
+          gh api "repos/${GITHUB_REPOSITORY}/releases/${release_id}" > release.json
+          node scripts/create-updater-manifest.mjs "$RELEASE_TAG" installers release.json
+          gh release upload "$RELEASE_TAG" installers/latest.json --clobber
+          gh release edit "$RELEASE_TAG" --draft=false

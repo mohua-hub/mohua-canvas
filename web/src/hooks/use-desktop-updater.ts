@@ -9,6 +9,7 @@ export function useDesktopUpdater() {
     const updateRef = useRef<Update | null>(null);
     const checkRef = useRef<Promise<void> | null>(null);
     const bundleTypeRef = useRef("");
+    const [isDesktop, setIsDesktop] = useState(false);
     const [supported, setSupported] = useState(false);
     const [checking, setChecking] = useState(false);
     const [installing, setInstalling] = useState(false);
@@ -23,7 +24,9 @@ export function useDesktopUpdater() {
             setError("");
             try {
                 const { isTauri } = await import("@tauri-apps/api/core");
-                if (!isTauri()) {
+                const desktop = isTauri();
+                setIsDesktop(desktop);
+                if (!desktop) {
                     setSupported(false);
                     return;
                 }
@@ -47,7 +50,7 @@ export function useDesktopUpdater() {
                 updateRef.current = next;
                 setUpdate(next);
             } catch (reason) {
-                setError(reason instanceof Error ? reason.message : "自动更新检查失败");
+                setError(reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "自动更新检查失败");
             } finally {
                 setChecking(false);
             }
@@ -75,7 +78,7 @@ export function useDesktopUpdater() {
                 await relaunch();
             }
         } catch (reason) {
-            setError(reason instanceof Error ? reason.message : "自动更新安装失败");
+            setError(reason instanceof Error ? reason.message : typeof reason === "string" ? reason : "自动更新安装失败");
             setInstalling(false);
         }
     }, [installing]);
@@ -85,9 +88,9 @@ export function useDesktopUpdater() {
         return () => {
             const current = updateRef.current;
             updateRef.current = null;
-            if (current) void current.close();
+            if (current) void current.close().catch(() => {});
         };
     }, [checkForUpdate]);
 
-    return { supported, checking, installing, update, progress, error, checkForUpdate, installUpdate };
+    return { isDesktop, supported, checking, installing, update, progress, error, checkForUpdate, installUpdate };
 }

@@ -1,8 +1,9 @@
 import { readdir, readFile, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-const [tag, artifactsDir] = process.argv.slice(2);
-if (!tag || !artifactsDir) throw new Error("Usage: node scripts/create-updater-manifest.mjs <tag> <artifacts-dir>");
+const [tag, artifactsDir, releaseFile] = process.argv.slice(2);
+if (!tag || !artifactsDir || !releaseFile) throw new Error("Usage: node scripts/create-updater-manifest.mjs <tag> <artifacts-dir> <release-json>");
+const releaseAssets = JSON.parse(await readFile(releaseFile, "utf8")).assets;
 
 async function listFiles(directory) {
     const entries = await readdir(directory, { withFileTypes: true });
@@ -24,10 +25,9 @@ async function platform(id, description, matches) {
     const packagePath = findAsset(description, matches);
     const signature = (await readFile(`${packagePath}.sig`, "utf8")).trim();
     if (!signature) throw new Error(`${description} updater signature is empty`);
-    return [id, {
-        signature,
-        url: `https://github.com/mohua-hub/mohua-canvas/releases/download/${tag}/${encodeURIComponent(basename(packagePath))}`,
-    }];
+    const asset = releaseAssets.find((item) => item.label === basename(packagePath));
+    if (!asset?.browser_download_url) throw new Error(`${description} published asset is missing`);
+    return [id, { signature, url: asset.browser_download_url }];
 }
 
 const windows = await platform("windows-x86_64", "Windows NSIS", (name) => /-setup\.exe$/i.test(name));

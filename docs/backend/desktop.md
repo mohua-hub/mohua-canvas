@@ -27,7 +27,7 @@ description: Tauri 2 与 Next.js standalone 桌面端运行及 GitHub 打包流�
 
 ### 桌面自动更新
 
-应用内更新仅适用于 Windows NSIS `.exe`；Windows MSI 通过 GitHub Release 手动更新。v0.1.4 及更早版本没有更新器，需先手动安装第一个带更新器的 NSIS 版本，此后才可在版本更新窗口下载、安装并重启。
+应用内更新仅适用于 Windows NSIS `.exe`；Windows MSI 通过 GitHub Release 手动更新。v0.1.7 及更早版本缺少本机页面的更新权限，无法仅靠远程更新清单修复，需先手动安装一次 v0.1.8 或更新版本的 NSIS 安装包，此后可在版本更新窗口下载并安装。更新权限只授予主窗口的 `http://127.0.0.1:39217/*` 和开发来源 `http://127.0.0.1:3000/*`。桌面更新区域始终显示，检查或安装失败时显示错误，不支持自动更新的安装方式提示使用 EXE。
 
 发布前生成 Tauri 更新密钥对，并将私钥文件内容保存到 GitHub 仓库 Settings → Secrets and variables → Actions，Secret 名称为 `TAURI_SIGNING_PRIVATE_KEY`。当前机器生成的私钥保存在 `%LOCALAPPDATA%\MohuaCanvas\tauri-updater.key`；公钥已写入 Tauri 配置，私钥不能提交或上传为 Release 附件。Release workflow 只为 Windows NSIS 包签名并写入 `latest.json`，Windows MSI 仍通过 Release 手动更新。签名密钥丢失或更换后，已有安装无法验证新密钥签署的更新；更换密钥需要用户手动安装新版本。
 
@@ -63,7 +63,7 @@ node web/node_modules/@tauri-apps/cli/tauri.js icon desktop/icon.svg --output sr
 1. 将 `CHANGELOG.md` 的 `Unreleased` 内容整理到新版本标题下，保留空 `Unreleased`。
 2. 更新根目录 `VERSION`，执行 `node scripts/desktop.mjs sync` 同步版本。
 3. 提交发布内容，创建与 `VERSION` 一致的 `vX.Y.Z` 标签并推送。
-4. `Release Desktop` 工作流只构建 Windows x64 的 NSIS 与 MSI 安装包，为 NSIS 包签名并生成 `latest.json`；构建成功后创建 Release 并上传安装包与更新清单。
+4. `Release Desktop` 工作流只构建 Windows x64 的 NSIS 与 MSI 安装包，为 NSIS 包签名；构建成功后创建草稿 Release 并上传安装包，通过 GitHub 返回的真实附件地址生成并上传 `latest.json`，最后公开发布 Release。
 
 工作流使用 `web/bun.lock` 和 `src-tauri/Cargo.lock` 锁定依赖，版本必须与标签一致。手动运行时可留空标签，仅构建所选分支并保存 Actions artifacts；指定已存在的标签时才发布 Release，避免把分支名误当成版本发布。同一标签重跑会覆盖同名附件。
 

@@ -36,7 +36,7 @@ type VersionReleaseModalProps = {
 };
 
 export function VersionReleaseModal({ className, style }: VersionReleaseModalProps) {
-    const { open, setOpen, openReleaseModal, latestVersion, releases, checkingRelease, hasNewVersion, checkLatestRelease, supported: desktopUpdaterSupported, checking: checkingUpdater, installing, update, progress, error: updaterError, checkForUpdate, installUpdate } = useVersionCheck();
+    const { open, setOpen, openReleaseModal, latestVersion, releases, checkingRelease, hasNewVersion, checkLatestRelease, isDesktop, supported: desktopUpdaterSupported, checking: checkingUpdater, installing, update, progress, error: updaterError, checkForUpdate, installUpdate } = useVersionCheck();
 
     return (
         <>
@@ -66,19 +66,19 @@ export function VersionReleaseModal({ className, style }: VersionReleaseModalPro
                                 className="cursor-pointer bg-transparent p-0 text-[11px] font-normal text-stone-400 underline-offset-2 transition hover:text-stone-700 hover:underline dark:text-stone-500 dark:hover:text-stone-300"
                                 onClick={() => { void checkLatestRelease(true); void checkForUpdate(); }}
                             >
-                                {checkingRelease ? "检查中..." : "检查更新"}
+                                {checkingRelease || checkingUpdater ? "检查中..." : "检查更新"}
                             </button>
                         </div>
                         <div className="mt-1 text-base font-semibold text-stone-950 dark:text-stone-100">{latestVersion}</div>
                     </div>
                 </div>
-                {desktopUpdaterSupported ? (
+                {isDesktop ? (
                     <div className="mb-5 rounded-lg border border-stone-200 p-3 dark:border-stone-800">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
                                 <div className="text-sm font-medium text-stone-950 dark:text-stone-100">桌面应用更新</div>
-                                <Typography.Text type="secondary">
-                                    {checkingUpdater ? "正在检查更新…" : update ? `发现新版本 ${update.version}` : updaterError || (desktopUpdaterSupported ? "当前已是最新版本" : "")}
+                                <Typography.Text type={updaterError ? "danger" : "secondary"}>
+                                    {checkingUpdater ? "正在检查更新…" : updaterError || (update ? `发现新版本 ${update.version}` : desktopUpdaterSupported ? "当前已是最新版本" : "当前安装包不支持自动更新，请手动安装 Windows EXE 版本")}
                                 </Typography.Text>
                             </div>
                             <div className="flex gap-2">

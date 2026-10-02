@@ -3,5 +3,8 @@
   "identifier": "default",
   "description": "Updater access for the main desktop window",
   "windows": ["main"],
-  "permissions": ["core:app:allow-bundle-type", "updater:default", "process:allow-restart"]
+  "remote": {
+    "urls": ["http://127.0.0.1:39217/*", "http://127.0.0.1:3000/*"]
+  },
+  "permissions": ["core:app:allow-bundle-type", "core:resources:allow-close", "updater:default", "process:allow-restart"]
 }
