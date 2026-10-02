@@ -5,123 +5,54 @@ description: settings 表中 public 和 private 配置结构说明
 
 # 系统配置数据结构
 
-系统配置保存在 `settings` 表中，目前只使用两行：
+配置保存在 `settings` 表中的 `public`、`private` 两行，值为 JSON。设置入口为 `/settings`，读写接口为 `GET/POST /api/settings/config`；应用无需账号或积分。
 
-| key | 说明 |
-| --- | --- |
-| `public` | 公开配置，前端可以读取 |
-| `private` | 私有配置，只给后端和管理员使用 |
+`GET /api/settings` 返回通用配置与渠道摘要，不包含上游密钥。设置接口返回完整配置结构，但已保存的渠道密钥、存储密码等敏感值以空值返回；编辑时留空沿用已保存值。
 
 ## public.value
 
-```json
-{
-  "modelChannel": {
-    "availableModels": ["gpt-5.5", "gpt-image-2"],
-    "modelCosts": [
-      { "model": "gpt-5.5", "credits": 1 },
-      { "model": "gpt-image-2", "credits": 10 }
-    ],
-    "defaultModel": "gpt-image-2",
-    "defaultImageModel": "gpt-image-2",
-    "defaultTextModel": "gpt-5.5",
-    "systemPrompt": "",
-    "allowCustomChannel": true
-  },
-  "auth": {
-    "allowRegister": true,
-    "linuxDo": {
-      "enabled": false
-    }
-  }
-}
-```
-
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `modelChannel` | object | 模型渠道公开配置组 |
-| `auth` | object | 认证相关公开配置 |
+| `modelChannel.availableModels` | string[] | 可用模型列表 |
+| `modelChannel.availableWorkflows` | string[] | 可用系统工作流标识 |
+| `modelChannel.channels` | object[] | 渠道摘要，不含 API Key 或完整工作流 |
+| `modelChannel.defaultModel` | string | 默认模型 |
+| `modelChannel.defaultImageModel` | string | 默认图片模型 |
+| `modelChannel.defaultVideoModel` | string | 默认视频模型 |
+| `modelChannel.defaultTextModel` | string | 默认文本模型 |
+| `modelChannel.systemPrompt` | string | 系统提示词 |
+| `modelChannel.systemPrompts` | object | image、video、text、workflow、workflowAgent 的系统提示词 |
+| `modelChannel.allowCustomChannel` | boolean | 是否启用本地自定义渠道，默认开启 |
+| `storage.mode` | string | 根据存储配置识别的模式 |
+| `storage.allowCustomProvider` | boolean | 是否启用自定义 S3/R2 或 WebDAV |
+| `storage.useGlobalProvider` | boolean | 是否启用全局存储 |
 
-`modelChannel` 字段：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `availableModels` | string[] | 系统可用模型；保存设置时会自动合并所有已启用私有渠道的模型 |
-| `modelCosts` | object[] | 模型算力点配置，图片按张、视频按秒、文本和音频按次预扣，上游失败时返还；视频智能时长 `-1` 按 15 秒计算，未配置默认不扣除 |
-| `defaultModel` | string | 默认模型，从 `availableModels` 中选择；为空或失效时优先选择文本模型 |
-| `defaultImageModel` | string | 默认图片模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedream`、`image`、`gpt-image` 模型 |
-| `defaultVideoModel` | string | 默认视频模型，从 `availableModels` 中选择；为空或失效时优先选择 `seedance`、`video` 模型 |
-| `defaultTextModel` | string | 默认文本模型，从 `availableModels` 中选择；为空或失效时优先选择非图片/视频模型 |
-| `systemPrompt` | string | 系统提示词 |
-| `allowCustomChannel` | boolean | 是否允许用户在配置弹窗中切换为本地直连渠道，默认允许 |
-
-`modelCosts` 每项字段：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `model` | string | 模型名称 |
-| `credits` | number | 图片每张、视频每秒、文本和音频每次调用预扣的算力点，最多保留两位小数 |
-
-用户侧请求模式：
-
-| 模式 | 说明 |
-| --- | --- |
-| 云端渠道 | 使用后端 `/api/v1/*` 代理接口，请求会按模型名匹配 `private.value.channels` 中的可用渠道 |
-| 本地直连 | 默认可选；`allowCustomChannel` 关闭后不可选，用户在浏览器本地配置 `baseUrl`、`apiKey` 和模型列表后直接请求模型接口 |
-
-`auth` 字段：
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `allowRegister` | boolean | 是否允许用户注册，默认允许；关闭后注册入口隐藏，注册接口拒绝新用户创建 |
-| `linuxDo.enabled` | boolean | 是否开启 Linux.do 登录 |
+通用配置不再包含账号认证、用户权限或计费项。后端可用时使用 `/api/v1/*` 代理系统渠道或已同步的本地渠道；后端不可用时使用浏览器本地渠道直接请求上游。
 
 ## private.value
 
-```json
-{
-  "channels": [
-    {
-      "protocol": "openai",
-      "name": "默认渠道",
-      "baseUrl": "https://api.example.com",
-      "apiKey": "sk-xxx",
-      "models": ["gpt-5.5", "gpt-image-2"],
-      "weight": 1,
-      "enabled": true,
-      "remark": ""
-    }
-  ],
-  "promptSync": {
-    "enabled": true,
-    "cron": "0 0 * * *"
-  }
-}
-```
-
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
-| `channels` | object[] | 模型渠道列表 |
-| `promptSync` | object | GitHub 远程提示词定时同步配置 |
+| `channels` | object[] | 系统模型和工作流渠道 |
+| `promptSync.enabled` | boolean | 定时同步远程提示词，默认开启 |
+| `promptSync.cron` | string | 默认 `0 0 * * *` |
+| `aiLog.localDirectReportEnabled` | boolean | 本地直连日志上报，默认关闭 |
+| `aiLog.cleanup` | object | enabled、retentionDays、cron；默认保留 14 天 |
+| `storage.allowCustomProvider` | boolean | 自定义存储开关 |
+| `storage.useGlobalProvider` | boolean | 全局存储开关 |
+| `storage.autoSyncAllAssets` | boolean | 全部素材云端同步，默认关闭 |
+| `storage.providers` | object[] | 全局 S3/R2 或 WebDAV 提供商 |
+| `storage.capacityCheck` | object | enabled、cron；默认每 6 小时检查 |
+| `storage.capacityLimitBytes` | number | 容量上限，默认 9 GiB |
 
-`channels` 每项字段：
+渠道包含 id、protocol、name、baseUrl、apiKey、models、weight、timeout、enabled、remark。支持项目已有模型协议及 RunningHub、ComfyUI 工作流；同一模型的多个可用渠道按权重选择。
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `protocol` | string | 协议，支持 OpenAI、Gemini、Grok2API、MiniMax、APIMart、KIE、MiMo、88API |
-| `name` | string | 渠道名称 |
-| `baseUrl` | string | 渠道接口地址 |
-| `apiKey` | string | 渠道密钥 |
-| `models` | string[] | 该渠道可用模型 |
-| `weight` | number | 渠道权重；同一模型有多个可用渠道时按权重随机 |
-| `enabled` | boolean | 是否启用 |
-| `remark` | string | 备注 |
+`workflows` 保存应用或工作流 ID、标题、用途、启用状态及字段映射。RunningHub 仅配置一个 `apiKey`，参数拉取、素材上传、任务提交和查询均使用该密钥；ComfyUI 使用 bridgeId、comfyUrl、workflowDir。Bridge 继续使用专用 Token。
 
-后端调用模型时，会从已启用、已配置 `baseUrl` 和 `apiKey`、且 `models` 包含目标模型的渠道中选择一个。
+全局存储保留 endpoint、region、bucket、accessKeyId、secretAccessKey、publicBaseUrl、pathPrefix，以及 WebDAV 的 username、password 等连接凭证。S3/R2 与 WebDAV 不能同时启用。
 
-`promptSync` 字段：
+## 工作区配置
 
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `enabled` | boolean | 是否开启定时同步，默认开启 |
-| `cron` | string | Cron 表达式，默认每天 0 点 |
+自定义渠道、偏好、工作流集合及自定义存储保存在 `workspace_configs`，唯一工作区 ID 为 `default`。使用 `/api/v1/config` 读取，`/api/v1/config/model` 和 `/api/v1/config/storage` 保存。
+
+本地工作流集合使用 `localforage` 保存，连接后端时同步到共享工作区。S3/R2 和 WebDAV 的配置同步开关分别为 `syncStorageConfig`、`syncWebDAVStorageConfig`。上游模型 API Key 保存在浏览器本地，开启同步后也保存在后端工作区配置中；WebDAV、S3 和上游服务的鉴权凭证继续按原协议使用。

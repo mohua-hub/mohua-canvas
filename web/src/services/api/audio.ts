@@ -10,7 +10,7 @@ import { geminiPcmBase64ToWav, normalizeGeminiTtsVoice } from "@/lib/gemini-tts"
 import { resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer, type UploadedFile } from "@/services/file-storage";
 import { autoSyncToCloud } from "@/services/image-storage";
 import { buildApiUrl, channelIdForActiveModel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { ReferenceAudio } from "@/types/media";
 
 export type CanvasAudioTask = {
@@ -36,30 +36,29 @@ type MiMoAudioResponse = { choices?: Array<{ message?: { audio?: { data?: string
 type GeminiAudioResponse = { candidates?: Array<{ content?: { parts?: Array<{ inlineData?: { data?: string; mimeType?: string } }> } }>; error?: { message?: string }; promptFeedback?: { blockReason?: string } };
 const grokTtsVoiceRequests = new Map<string, Promise<GrokTtsVoice[]>>();
 
-function usesAccountProxy(config: AiConfig) {
-    const token = useUserStore.getState().token;
-    return config.channelMode === "remote" || (config.channelMode === "local" && Boolean(token));
+function usesServerProxy(config: AiConfig) {
+    const backendConnected = useBackendStore.getState().available;
+    return config.channelMode === "remote" || (config.channelMode === "local" && Boolean(backendConnected));
 }
 
 function aiApiUrl(config: AiConfig, path: string) {
-    if (usesAccountProxy(config)) return `/api/v1${path}`;
+    if (usesServerProxy(config)) return `/api/v1${path}`;
     const channel = localChannelForActiveModel(config);
     return buildApiUrl(channel?.baseUrl || config.baseUrl, path);
 }
 
 function aiHeaders(config: AiConfig) {
-    const token = useUserStore.getState().token;
+    const backendConnected = useBackendStore.getState().available;
     if (config.channelMode === "remote") {
         return {
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
             ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
             "Content-Type": "application/json",
         };
     }
-    if (token) {
+    if (backendConnected) {
         return {
-            Authorization: `Bearer ${token}`,
-            ...(channelIdForActiveModel(config) ? { "X-User-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
+            
+            ...(channelIdForActiveModel(config) ? { "X-Local-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
             "Content-Type": "application/json",
         };
     }
@@ -68,10 +67,6 @@ function aiHeaders(config: AiConfig) {
         Authorization: `Bearer ${localChannelForActiveModel(config)?.apiKey || config.apiKey}`,
         "Content-Type": "application/json",
     };
-}
-
-function refreshRemoteUser(config: AiConfig) {
-    if (usesAccountProxy(config)) void useUserStore.getState().hydrateUser();
 }
 
 export function fetchGrokTtsVoices(config: AiConfig, model: string) {
@@ -95,17 +90,16 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, r
         if (isGeminiTtsModel(model) && isGeminiConfig(config, model)) {
             if (referenceAudio) throw new Error("Gemini TTS 不支持参考音频");
             const nativeBody = buildGeminiTtsRequest(config, prompt);
-            const body = usesAccountProxy(config) ? { model, ...nativeBody } : nativeBody;
+            const body = usesServerProxy(config) ? { model, ...nativeBody } : nativeBody;
             const channel = localChannelForActiveModel(config);
             const response = await axios.post<GeminiAudioResponse>(
-                usesAccountProxy(config) ? "/api/v1/audio/speech" : geminiActionUrl(channel?.baseUrl || config.baseUrl, model, "generateContent"),
+                usesServerProxy(config) ? "/api/v1/audio/speech" : geminiActionUrl(channel?.baseUrl || config.baseUrl, model, "generateContent"),
                 body,
-                { headers: usesAccountProxy(config) ? aiHeaders(config) : geminiDirectHeaders(config) },
+                { headers: usesServerProxy(config) ? aiHeaders(config) : geminiDirectHeaders(config) },
             );
-            refreshRemoteUser(config);
             return decodeGeminiAudio(response.data);
         }
-        if (isMimoTtsModel(model) && !usesAccountProxy(config)) {
+        if (isMimoTtsModel(model) && !usesServerProxy(config)) {
             const format = normalizeMimoTtsFormat(config.mimoTtsFormat);
             const body = await buildMiMoNativeRequest(config, model, prompt, referenceAudio);
             const response = await axios.post<MiMoAudioResponse>(aiApiUrl(config, "/chat/completions"), body, { headers: aiHeaders(config) });
@@ -116,7 +110,6 @@ export async function requestAudioGeneration(config: AiConfig, prompt: string, r
         const body = await buildAudioSpeechRequest(config, model, prompt, referenceAudio);
         const response = await axios.post<Blob>(aiApiUrl(config, "/audio/speech"), body, { headers: aiHeaders(config), responseType: "blob" });
         await assertAudioBlob(response.data);
-        refreshRemoteUser(config);
         return response.data.type.startsWith("audio/") ? response.data : new Blob([response.data], { type: audioMimeType(format) });
     } catch (error) {
         throw new Error(readAxiosError(error, "音频生成失败"));
@@ -132,12 +125,12 @@ export async function createCanvasAudioTask(config: AiConfig, prompt: string, op
     const model = (config.model || config.audioModel).trim();
     assertAudioConfig(config, model);
 
-    if (!usesAccountProxy(config) && isAutoDLConfig(config, model)) {
+    if (!usesServerProxy(config) && isAutoDLConfig(config, model)) {
         const body = await buildAudioSpeechRequest(config, model, prompt, referenceAudio);
         const result = await (await import("./direct-ai")).requestDirectAudioURL({ ...config, model }, "autodl", body);
         return syncGeneratedAudio({ id: options.clientTaskId || result.id, status: "completed", progress: 100, url: result.url, audio_url: result.url, mimeType: "audio/wav" }, result.id);
     }
-    if (!usesAccountProxy(config) || isGeminiTtsModel(model) && isGeminiConfig(config, model)) {
+    if (!usesServerProxy(config) || isGeminiTtsModel(model) && isGeminiConfig(config, model)) {
         const blob = await requestAudioGeneration(config, prompt, referenceAudio);
         const format = audioResponseFormat(config, model);
         const stored = await storeGeneratedAudio(blob, format);
@@ -174,15 +167,13 @@ export async function createCanvasAudioTask(config: AiConfig, prompt: string, op
     if (!response.ok) throw new Error(await readFetchError(response, "音频任务创建失败"));
     const payload = (await response.json()) as { code?: number; msg?: string; data?: CanvasAudioTask };
     if (payload.code !== 0 || !payload.data) throw new Error(payload.msg || "音频任务创建失败");
-    refreshRemoteUser(config);
     return syncGeneratedAudio(payload.data);
 }
 
 export async function pollCanvasAudioTaskStatus(taskId: string): Promise<CanvasAudioTask> {
-    const token = useUserStore.getState().token;
-    if (!token) throw new Error("请先登录后再使用云端渠道");
+    const backendConnected = useBackendStore.getState().available;
+    if (!backendConnected) throw new Error("请先连接后端服务后再使用云端渠道");
     const response = await fetch(`/api/v1/canvas/audio-tasks/${encodeURIComponent(taskId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) throw new Error(await readFetchError(response, "读取音频任务失败"));
     const payload = (await response.json()) as { code?: number; msg?: string; data?: CanvasAudioTask };

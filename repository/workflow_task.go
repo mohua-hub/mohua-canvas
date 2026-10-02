@@ -19,7 +19,7 @@ func InsertWorkflowTask(task any) error {
 
 type RunningHubWorkflowTask struct {
 	ID             string
-	UserID         string
+	WorkspaceID         string
 	WorkflowRef    string
 	UpstreamTaskID string
 	CreatedAt      string
@@ -35,17 +35,17 @@ func ListDueRunningHubWorkflowTasks(afterCreatedAt, afterID string, limit int) (
 	}
 	var tasks []RunningHubWorkflowTask
 	err = db.Raw(`
-		SELECT id, user_id, workflow_ref, upstream_task_id, created_at
+		SELECT id, workspace_id, workflow_ref, upstream_task_id, created_at
 		FROM (
-			SELECT id, user_id, workflow_ref, response_body AS upstream_task_id, created_at
+			SELECT id, workspace_id, workflow_ref, response_body AS upstream_task_id, created_at
 			FROM canvas_image_tasks
 			WHERE status = 'running' AND workflow_ref <> '' AND response_body LIKE '%"upstreamTaskId":%'
 			UNION ALL
-			SELECT id, user_id, workflow_ref, upstream_task_id, created_at
+			SELECT id, workspace_id, workflow_ref, upstream_task_id, created_at
 			FROM video_tasks
 			WHERE status = 'running' AND workflow_ref <> '' AND upstream_task_id <> ''
 			UNION ALL
-			SELECT id, user_id, workflow_ref, response_body AS upstream_task_id, created_at
+			SELECT id, workspace_id, workflow_ref, response_body AS upstream_task_id, created_at
 			FROM canvas_audio_tasks
 			WHERE status = 'running' AND workflow_ref <> '' AND response_body LIKE '%"upstreamTaskId":%'
 		) AS workflow_tasks
@@ -55,17 +55,16 @@ func ListDueRunningHubWorkflowTasks(afterCreatedAt, afterID string, limit int) (
 	return tasks, err
 }
 
-func CompleteWorkflowTask(taskID, status string, urls []string, failure string, newRefundLog func(string) model.CreditLog) (bool, float64, string, string, error) {
+func CompleteWorkflowTask(taskID, status string, urls []string, failure string) (bool, string, string, error) {
 	db, err := DB()
 	if err != nil {
-		return false, 0, "", "", err
+		return false, "", "", err
 	}
 	changed := false
-	credits := 0.0
 	workflowRef := ""
-	userID := ""
+	workspaceID := ""
 	err = db.Transaction(func(tx *gorm.DB) error {
-		current := userConfigTimestamp()
+		current := workspaceConfigTimestamp()
 		switch {
 		case strings.HasPrefix(taskID, "wf-image-"):
 			var task model.CanvasImageTask
@@ -83,7 +82,7 @@ func CompleteWorkflowTask(taskID, status string, urls []string, failure string, 
 					task.ImageURL = urls[0]
 				}
 			}
-			credits, workflowRef, userID, changed = task.Credits, task.WorkflowRef, task.UserID, true
+			workflowRef, workspaceID, changed = task.WorkflowRef, task.WorkspaceID, true
 			if err := tx.Save(&task).Error; err != nil {
 				return err
 			}
@@ -102,7 +101,7 @@ func CompleteWorkflowTask(taskID, status string, urls []string, failure string, 
 					task.VideoURL = urls[0]
 				}
 			}
-			credits, workflowRef, userID, changed = task.Credits, task.WorkflowRef, task.UserID, true
+			workflowRef, workspaceID, changed = task.WorkflowRef, task.WorkspaceID, true
 			if err := tx.Save(&task).Error; err != nil {
 				return err
 			}
@@ -121,35 +120,14 @@ func CompleteWorkflowTask(taskID, status string, urls []string, failure string, 
 					task.AudioURL = urls[0]
 				}
 			}
-			credits, workflowRef, userID, changed = task.Credits, task.WorkflowRef, task.UserID, true
+			workflowRef, workspaceID, changed = task.WorkflowRef, task.WorkspaceID, true
 			if err := tx.Save(&task).Error; err != nil {
 				return err
 			}
 		default:
 			return errors.New("工作流任务 ID 无效")
 		}
-		if status != "failed" || credits <= 0 {
-			return nil
-		}
-		if newRefundLog == nil {
-			return errors.New("工作流退款信息缺失")
-		}
-		refundLog := newRefundLog(workflowRef)
-		if refundLog.CreatedAt == "" {
-			return errors.New("工作流退款时间缺失")
-		}
-		user, ok, err := refundUserCredits(tx, userID, credits, refundLog.CreatedAt)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return errors.New("用户不存在")
-		}
-		refundLog.UserID = userID
-		refundLog.Type = model.CreditLogTypeAIRefund
-		refundLog.Amount = credits
-		refundLog.Balance = user.Credits
-		return tx.Save(&refundLog).Error
+		return nil
 	})
-	return changed, credits, workflowRef, userID, err
+	return changed, workflowRef, workspaceID, err
 }

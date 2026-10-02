@@ -23,20 +23,20 @@ func GetVideoTask(id string) (model.VideoTask, bool, error) {
 	return task, true, nil
 }
 
-func GetUserVideoTask(userID string, id string) (model.VideoTask, bool, error) {
+func GetWorkspaceVideoTask(workspaceID string, id string) (model.VideoTask, bool, error) {
 	db, err := DB()
 	if err != nil {
 		return model.VideoTask{}, false, err
 	}
 	var task model.VideoTask
-	err = db.First(&task, "user_id = ? AND (id = ? OR upstream_task_id = ? OR upstream_video_id = ?)", userID, id, id, id).Error
+	err = db.First(&task, "workspace_id = ? AND (id = ? OR upstream_task_id = ? OR upstream_video_id = ?)", workspaceID, id, id, id).Error
 	if err != nil {
 		return model.VideoTask{}, false, nil
 	}
 	return task, true, nil
 }
 
-func ListUserVideoTasks(userID string, source string, limit int) ([]model.VideoTask, error) {
+func ListWorkspaceVideoTasks(workspaceID string, source string, limit int) ([]model.VideoTask, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func ListUserVideoTasks(userID string, source string, limit int) ([]model.VideoT
 		limit = 100
 	}
 	var tasks []model.VideoTask
-	query := db.Where("user_id = ?", userID)
+	query := db.Where("workspace_id = ?", workspaceID)
 	if source != "" {
 		if source == "video-workbench" {
 			query = query.Where("(source = ? OR source = '' OR source IS NULL)", source)
@@ -61,12 +61,12 @@ func ListUserVideoTasks(userID string, source string, limit int) ([]model.VideoT
 	return tasks, err
 }
 
-func DeleteUserVideoTask(userID string, id string) error {
+func DeleteWorkspaceVideoTask(workspaceID string, id string) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
-	return db.Where("user_id = ? AND (id = ? OR upstream_task_id = ? OR upstream_video_id = ?)", userID, id, id, id).Delete(&model.VideoTask{}).Error
+	return db.Where("workspace_id = ? AND (id = ? OR upstream_task_id = ? OR upstream_video_id = ?)", workspaceID, id, id, id).Delete(&model.VideoTask{}).Error
 }
 
 func ListDueVideoTasks(limit int) ([]model.VideoTask, error) {

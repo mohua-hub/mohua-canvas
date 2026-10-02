@@ -45,6 +45,9 @@ export type CanvasNodeMetadata = {
     generationType?: CanvasImageGenerationType;
     model?: string;
     workflowRef?: import("@/lib/workflow-channel").WorkflowRef;
+    runningHubEntry?: import("@/lib/workflow-channel").WorkflowEntry;
+    runningHubFieldValues?: Record<string, unknown>;
+    runningHubMedia?: Record<string, string>;
     channelId?: string;
     size?: string;
     quality?: string;

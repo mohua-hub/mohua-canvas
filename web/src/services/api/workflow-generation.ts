@@ -59,12 +59,12 @@ export function isRetryableWorkflowError(error: unknown) {
     return error instanceof Error && /(?:失败|status)[：:\s]*(408|429|5\d\d)\b/i.test(error.message);
 }
 
-async function workflowRequest<T>(path: string, token: string, signal?: AbortSignal, body?: unknown): Promise<T> {
+export async function workflowRequest<T>(path: string, signal?: AbortSignal, body?: unknown): Promise<T> {
     let response: Response;
     try {
         response = await fetch(path, {
             method: body === undefined ? "GET" : "POST",
-            headers: { Authorization: `Bearer ${token}`, ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
+            headers: { ...(body === undefined ? {} : { "Content-Type": "application/json" }) },
             body: body === undefined ? undefined : JSON.stringify(body),
             signal,
         });
@@ -86,12 +86,12 @@ async function workflowRequest<T>(path: string, token: string, signal?: AbortSig
     return result.data;
 }
 
-export function submitWorkflowTask(token: string, input: WorkflowRunInput, signal?: AbortSignal) {
-    return workflowRequest<WorkflowGenerationTask>("/api/v1/workflow-tasks", token, signal, input);
+export function submitWorkflowTask(input: WorkflowRunInput, signal?: AbortSignal) {
+    return workflowRequest<WorkflowGenerationTask>("/api/v1/workflow-tasks", signal, input);
 }
 
-export function getWorkflowTask(token: string, id: string, signal?: AbortSignal) {
-    return workflowRequest<WorkflowGenerationTask>(`/api/v1/workflow-tasks/${encodeURIComponent(id)}`, token, signal);
+export function getWorkflowTask(id: string, signal?: AbortSignal) {
+    return workflowRequest<WorkflowGenerationTask>(`/api/v1/workflow-tasks/${encodeURIComponent(id)}`, signal);
 }
 
 export function comfyOutputStorageKey(url: string) {
@@ -105,8 +105,8 @@ export function comfyOutputStorageKey(url: string) {
     }
 }
 
-export async function runWorkflowTask(token: string, input: WorkflowRunInput, signal?: AbortSignal, onUpdate?: (task: WorkflowGenerationTask) => void) {
-    let task = await submitWorkflowTask(token, input, signal);
+export async function runWorkflowTask(input: WorkflowRunInput, signal?: AbortSignal, onUpdate?: (task: WorkflowGenerationTask) => void) {
+    let task = await submitWorkflowTask(input, signal);
     onUpdate?.(task);
     while (task.status === "queued" || task.status === "running") {
         await new Promise<void>((resolve, reject) => {
@@ -116,7 +116,7 @@ export async function runWorkflowTask(token: string, input: WorkflowRunInput, si
             if (signal?.aborted) onAbort();
             else signal?.addEventListener("abort", onAbort, { once: true });
         });
-        task = await getWorkflowTask(token, task.id, signal);
+        task = await getWorkflowTask(task.id, signal);
         onUpdate?.(task);
     }
     if (task.status === "failed") throw new WorkflowRequestError(task.error || "工作流运行失败");

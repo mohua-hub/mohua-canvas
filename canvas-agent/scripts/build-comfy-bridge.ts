@@ -59,13 +59,6 @@ function build(target: keyof typeof outputs, goos: string, goarch: string) {
     assertBuildOutput(target);
 }
 
-if (process.env.CANVAS_PREBUILT_BRIDGE === "1") {
-    assertBuildOutput("windows");
-    assertBuildOutput("linuxAmd64");
-    assertBuildOutput("linuxArm64");
-    process.exit(0);
-}
-
 build("windows", "windows", "amd64");
 build("linuxAmd64", "linux", "amd64");
 build("linuxArm64", "linux", "arm64");

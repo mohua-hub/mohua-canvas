@@ -17,16 +17,13 @@ import (
 	"github.com/tigerowo/infinite-canvas/service"
 )
 
-const userModelChannelHeader = "X-User-Model-Channel-ID"
+const workspaceModelChannelHeader = "X-Local-Model-Channel-ID"
 
-func selectAIRequestChannel(user model.AuthUser, modelName string, channelID string, userChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
-	userChannelID = strings.TrimSpace(userChannelID)
-	if userChannelID != "" {
-		channel, err := service.SelectUserLocalModelChannelForModel(user.ID, modelName, userChannelID)
-		return channel, userChannelID, err
-	}
-	if !service.UserCanUseRemoteModelChannel(user) {
-		return model.ModelChannel{}, "", fmt.Errorf("当前账号未开放云端渠道")
+func selectAIRequestChannel(workspaceID string, modelName string, channelID string, localChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
+	localChannelID = strings.TrimSpace(localChannelID)
+	if localChannelID != "" {
+		channel, err := service.SelectLocalModelChannelForModel(workspaceID, modelName, localChannelID)
+		return channel, localChannelID, err
 	}
 	channel, err := service.SelectModelChannelForModel(modelName, channelID, publicOnly)
 	return channel, "", err
@@ -35,7 +32,7 @@ func selectAIRequestChannel(user model.AuthUser, modelName string, channelID str
 func failAIChannelSelect(w http.ResponseWriter, err error, fallback string) {
 	message := strings.TrimSpace(err.Error())
 	switch message {
-	case "当前账号未开放云端渠道", "请先登录", "缺少模型名称", "缺少模型渠道", "本地渠道不存在", "本地渠道配置不完整", "本地渠道不支持该模型", "指定模型渠道不可用", "模型未开放":
+	case "缺少工作区标识", "缺少模型名称", "缺少模型渠道", "本地渠道不存在", "本地渠道配置不完整", "本地渠道不支持该模型", "指定模型渠道不可用", "模型未开放":
 		Fail(w, message)
 	default:
 		Fail(w, fallback)
@@ -97,16 +94,12 @@ func AITTSVoices(w http.ResponseWriter, r *http.Request) {
 
 func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 	startedAt := time.Now()
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+	workspaceID := service.WorkspaceID
 	modelName := r.URL.Query().Get("model")
 	if strings.TrimSpace(modelName) == "" {
 		modelName = "Agnes-Video-V2.0"
 	}
-	channel, _, err := selectAIRequestChannel(user, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(userModelChannelHeader), false)
+	channel, _, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), false)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
@@ -119,7 +112,7 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	service.SetModelChannelAuthHeader(request, channel)
-	copyAIResponse(w, request, channel, aiLogContext{StartedAt: startedAt, Endpoint: path, Method: http.MethodGet, Model: modelName, Channel: channel, UserID: user.ID, UserDisplayName: firstNonEmpty(user.DisplayName, user.Username), RequestBody: summarizeQueryParams(r.URL.Query())}, nil)
+	copyAIResponse(w, request, channel, aiLogContext{StartedAt: startedAt, Endpoint: path, Method: http.MethodGet, Model: modelName, Channel: channel, WorkspaceID: workspaceID, RequestBody: summarizeQueryParams(r.URL.Query())}, nil)
 }
 
 func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
@@ -130,26 +123,12 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	channel, userChannelID, err := selectAIRequestChannel(user, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(userModelChannelHeader), true)
+	workspaceID := service.WorkspaceID
+	channel, _, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), true)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
-	}
-	credits := 0.0
-	if userChannelID == "" {
-		credits, err = service.ModelCost(modelName)
-		if err != nil {
-			log.Printf("AI proxy read model cost failed: model=%s err=%v", modelName, err)
-			Fail(w, "AI 接口请求失败")
-			return
-		}
-		credits *= float64(readAIRequestCount(body, contentType, false))
 	}
 	upstreamPath := resolveAIProxyPath(channel, modelName, path)
 	prepared, _, err := prepareAIProtocolRequest(aiProtocolRequest{
@@ -176,29 +155,16 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}
-	if credits > 0 {
-		if err := service.ConsumeUserCredits(user.ID, modelName, credits, upstreamPath); err != nil {
-			FailError(w, err)
-			return
-		}
-	}
 	copyAIResponse(w, request, channel, aiLogContext{
 		StartedAt:       startedAt,
 		Endpoint:        path,
 		Method:          http.MethodPost,
 		Model:           modelName,
 		Channel:         channel,
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
-		Credits:         credits,
+		WorkspaceID:          workspaceID,
+		
 		RequestBody:     summarizeAIRequest(body, contentType),
-	}, func() {
-		if credits > 0 {
-			if err := service.RefundUserCredits(user.ID, modelName, credits, upstreamPath); err != nil {
-				log.Printf("AI proxy refund credits failed: user=%s model=%s credits=%g err=%v", user.ID, modelName, credits, err)
-			}
-		}
-	})
+	}, nil)
 }
 
 func geminiStreamRequested(body []byte) bool {
@@ -214,9 +180,7 @@ type aiLogContext struct {
 	Method          string
 	Model           string
 	Channel         model.ModelChannel
-	UserID          string
-	UserDisplayName string
-	Credits         float64
+	WorkspaceID          string
 	RequestBody     string
 }
 
@@ -296,8 +260,8 @@ func saveAIProxyLog(context aiLogContext, status int, responseBody string, error
 		}
 	}
 	service.SaveAICallLog(service.AICallLogInput{
-		UserID:          context.UserID,
-		UserDisplayName: context.UserDisplayName,
+		WorkspaceID:          context.WorkspaceID,
+		
 		Endpoint:        context.Endpoint,
 		Method:          context.Method,
 		Model:           context.Model,
@@ -305,7 +269,6 @@ func saveAIProxyLog(context aiLogContext, status int, responseBody string, error
 		ChannelName:     context.Channel.Name,
 		Status:          status,
 		DurationMs:      time.Since(context.StartedAt).Milliseconds(),
-		Credits:         context.Credits,
 		RequestBody:     context.RequestBody,
 		ResponseBody:    responseBody,
 		Error:           errorMessage,

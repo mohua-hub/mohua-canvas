@@ -132,15 +132,15 @@ func DeleteComfyBridge(id, scope, ownerID string) ([]string, error) {
 					return err
 				}
 				if changed {
-					setting.Value, setting.UpdatedAt = value, userConfigTimestamp()
+					setting.Value, setting.UpdatedAt = value, workspaceConfigTimestamp()
 					if err := tx.Select("Value", "UpdatedAt").Save(&setting).Error; err != nil {
 						return err
 					}
 				}
 			}
 		case "personal":
-			var config model.UserConfig
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&config, "user_id = ?", ownerID).Error
+			var config model.WorkspaceConfig
+			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&config, "workspace_id = ?", ownerID).Error
 			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 				return err
 			}
@@ -150,7 +150,7 @@ func DeleteComfyBridge(id, scope, ownerID string) ([]string, error) {
 					return err
 				}
 				if changed {
-					config.ModelConfig, config.UpdatedAt = string(value), userConfigTimestamp()
+					config.ModelConfig, config.UpdatedAt = string(value), workspaceConfigTimestamp()
 					if err := tx.Select("ModelConfig", "UpdatedAt").Save(&config).Error; err != nil {
 						return err
 					}

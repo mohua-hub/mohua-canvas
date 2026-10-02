@@ -8,7 +8,7 @@ const (
 // AgentSkill 可由用户主动选择的 Agent 工作流说明。
 type AgentSkill struct {
 	ID              string `json:"id" gorm:"primaryKey"`
-	OwnerUserID     string `json:"ownerUserId" gorm:"index"`
+	OwnerWorkspaceID     string `json:"ownerWorkspaceId" gorm:"index"`
 	Source          string `json:"source" gorm:"index"`
 	Name            string `json:"name"`
 	Description     string `json:"description"`

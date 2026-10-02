@@ -1,7 +1,6 @@
 import type { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
 
 type RouteContext = {
     params: Promise<{ path: string[] }>;
@@ -28,8 +27,8 @@ function responseHeaders(response: Response) {
 
 async function proxy(request: NextRequest, context: RouteContext) {
     const { path } = await context.params;
-    const apiBaseUrl = process.env.API_BASE_URL || "http://127.0.0.1:8080";
-    const target = `${apiBaseUrl.replace(/\/$/, "")}/api/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
+    const apiPort = Number(process.env.API_PORT || 8080);
+    const target = `http://127.0.0.1:${apiPort}/api/${path.map(encodeURIComponent).join("/")}${request.nextUrl.search}`;
     const hasBody = request.method !== "GET" && request.method !== "HEAD";
 
     try {

@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -15,24 +14,18 @@ import (
 
 const generationLogLimit = 1000
 
-func CurrentUserVideoGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+func CurrentWorkspaceVideoGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	logs, err := repository.ListVideoGenerationLogs(user.ID, generationLogLimit)
+	logs, err := repository.ListVideoGenerationLogs(workspaceID, generationLogLimit)
 	if err != nil {
 		return nil, err
 	}
 	return videoGenerationPayloads(logs), nil
 }
 
-func SaveCurrentUserVideoGenerationLogs(ctx context.Context, raws []json.RawMessage) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+func SaveCurrentWorkspaceVideoGenerationLogs(ctx context.Context, raws []json.RawMessage) ([]json.RawMessage, error) {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
 	logs := make([]model.VideoGenerationLog, 0, len(raws))
 	for _, raw := range raws {
@@ -41,51 +34,39 @@ func SaveCurrentUserVideoGenerationLogs(ctx context.Context, raws []json.RawMess
 			logs = append(logs, log)
 		}
 	}
-	if err := repository.UpsertVideoGenerationLogs(user.ID, logs); err != nil {
+	if err := repository.UpsertVideoGenerationLogs(workspaceID, logs); err != nil {
 		return nil, err
 	}
-	return CurrentUserVideoGenerationLogs(ctx)
+	return CurrentWorkspaceVideoGenerationLogs(ctx)
 }
 
-func DeleteCurrentUserVideoGenerationLog(ctx context.Context, id string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+func DeleteCurrentWorkspaceVideoGenerationLog(ctx context.Context, id string) error {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	return repository.SoftDeleteVideoGenerationLog(user.ID, strings.TrimSpace(id), now())
+	return repository.SoftDeleteVideoGenerationLog(workspaceID, strings.TrimSpace(id), now())
 }
 
-func DeleteCurrentUserVideoGenerationLogs(ctx context.Context, ids []string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+func DeleteCurrentWorkspaceVideoGenerationLogs(ctx context.Context, ids []string) error {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	return repository.SoftDeleteVideoGenerationLogs(user.ID, ids, now())
+	return repository.SoftDeleteVideoGenerationLogs(workspaceID, ids, now())
 }
 
-func CurrentUserImageGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+func CurrentWorkspaceImageGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	if err := migrateUserImageGenerationLogs(user.ID); err != nil {
+	if err := migrateWorkspaceImageGenerationLogs(workspaceID); err != nil {
 		return nil, err
 	}
-	logs, err := repository.ListImageGenerationLogs(user.ID, generationLogLimit)
+	logs, err := repository.ListImageGenerationLogs(workspaceID, generationLogLimit)
 	if err != nil {
 		return nil, err
 	}
 	return imageGenerationPayloads(logs), nil
 }
 
-func SaveCurrentUserImageGenerationLogs(ctx context.Context, raws []json.RawMessage) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+func SaveCurrentWorkspaceImageGenerationLogs(ctx context.Context, raws []json.RawMessage) ([]json.RawMessage, error) {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
 	logs := make([]model.ImageGenerationLog, 0, len(raws))
 	for _, raw := range raws {
@@ -94,28 +75,22 @@ func SaveCurrentUserImageGenerationLogs(ctx context.Context, raws []json.RawMess
 			logs = append(logs, log)
 		}
 	}
-	if err := repository.UpsertImageGenerationLogs(user.ID, logs); err != nil {
+	if err := repository.UpsertImageGenerationLogs(workspaceID, logs); err != nil {
 		return nil, err
 	}
-	return CurrentUserImageGenerationLogs(ctx)
+	return CurrentWorkspaceImageGenerationLogs(ctx)
 }
 
-func DeleteCurrentUserImageGenerationLog(ctx context.Context, id string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+func DeleteCurrentWorkspaceImageGenerationLog(ctx context.Context, id string) error {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	return repository.SoftDeleteImageGenerationLog(user.ID, strings.TrimSpace(id), now())
+	return repository.SoftDeleteImageGenerationLog(workspaceID, strings.TrimSpace(id), now())
 }
 
-func DeleteCurrentUserImageGenerationLogs(ctx context.Context, ids []string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+func DeleteCurrentWorkspaceImageGenerationLogs(ctx context.Context, ids []string) error {
+	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
-	return repository.SoftDeleteImageGenerationLogs(user.ID, ids, now())
+	return repository.SoftDeleteImageGenerationLogs(workspaceID, ids, now())
 }
 
 func videoGenerationPayloads(logs []model.VideoGenerationLog) []json.RawMessage {
@@ -246,8 +221,8 @@ func cleanupGenerationLogs() {
 	_ = repository.CleanupDeletedImageGenerationLogs(before)
 }
 
-func migrateUserImageGenerationLogs(userID string) error {
-	config, found, err := repository.GetUserConfig(userID)
+func migrateWorkspaceImageGenerationLogs(workspaceID string) error {
+	config, found, err := repository.GetWorkspaceConfig(workspaceID)
 	if err != nil || !found || strings.TrimSpace(config.ImageHistory) == "" {
 		return err
 	}
@@ -256,7 +231,7 @@ func migrateUserImageGenerationLogs(userID string) error {
 	}
 	if err := json.Unmarshal([]byte(config.ImageHistory), &legacy); err != nil || len(legacy.Logs) == 0 {
 		config.ImageHistory = ""
-		_, saveErr := repository.SaveUserConfig(config)
+		_, saveErr := repository.SaveWorkspaceConfig(config)
 		return saveErr
 	}
 	logs := make([]model.ImageGenerationLog, 0, len(legacy.Logs))
@@ -266,11 +241,11 @@ func migrateUserImageGenerationLogs(userID string) error {
 			logs = append(logs, log)
 		}
 	}
-	if err := repository.UpsertImageGenerationLogs(userID, logs); err != nil {
+	if err := repository.UpsertImageGenerationLogs(workspaceID, logs); err != nil {
 		return err
 	}
 	config.ImageHistory = ""
-	_, err = repository.SaveUserConfig(config)
+	_, err = repository.SaveWorkspaceConfig(config)
 	return err
 }
 

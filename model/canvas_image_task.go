@@ -2,17 +2,15 @@ package model
 
 type CanvasImageTask struct {
 	ID              string   `json:"id" gorm:"primaryKey"`
-	UserID          string   `json:"userId" gorm:"index:idx_canvas_image_tasks_user_source_node,priority:1"`
-	UserDisplayName string   `json:"userDisplayName"`
-	Source          string   `json:"source" gorm:"index:idx_canvas_image_tasks_user_source_node,priority:2"`
-	SourceID        string   `json:"sourceId" gorm:"index:idx_canvas_image_tasks_user_source_node,priority:3"`
-	NodeID          string   `json:"nodeId" gorm:"index:idx_canvas_image_tasks_user_source_node,priority:4"`
+	WorkspaceID          string   `json:"workspaceId" gorm:"index:idx_canvas_image_tasks_workspace_source_node,priority:1"`
+	Source          string   `json:"source" gorm:"index:idx_canvas_image_tasks_workspace_source_node,priority:2"`
+	SourceID        string   `json:"sourceId" gorm:"index:idx_canvas_image_tasks_workspace_source_node,priority:3"`
+	NodeID          string   `json:"nodeId" gorm:"index:idx_canvas_image_tasks_workspace_source_node,priority:4"`
 	Model           string   `json:"model"`
 	ChannelID       string   `json:"channelId"`
-	UserChannelID   string   `json:"userChannelId"`
+	LocalChannelID   string   `json:"localChannelId"`
 	ChannelName     string   `json:"channelName"`
 	WorkflowRef     string   `json:"workflowRef,omitempty" gorm:"type:text"`
-	Credits         float64  `json:"credits,omitempty" gorm:"type:decimal(20,2)"`
 	Status          string   `json:"status"`
 	Progress        int      `json:"progress"`
 	Prompt          string   `json:"prompt" gorm:"type:text"`

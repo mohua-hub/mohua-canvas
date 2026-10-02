@@ -31,14 +31,6 @@ func PublicSettings() (model.PublicSetting, error) {
 	return settings.Public, err
 }
 
-func UserCanUseRemoteModelChannel(user model.AuthUser) bool {
-	if user.Role == model.UserRoleAdmin {
-		return true
-	}
-	settings, err := PublicSettings()
-	return err == nil && settings.ModelChannel.AllowUserRemoteChannel != nil && *settings.ModelChannel.AllowUserRemoteChannel
-}
-
 func AdminSettings() (model.Settings, error) {
 	settings, err := repository.GetSettings()
 	return hidePrivateAPIKeys(normalizeSettings(settings)), err
@@ -51,7 +43,6 @@ func SaveSettings(settings model.Settings) (model.Settings, error) {
 	}
 	settings = normalizeSettings(settings)
 	keepPrivateAPIKeys(&settings, normalizeSettings(saved))
-	keepPrivateAuthSecrets(&settings, normalizeSettings(saved))
 	keepPrivateStorageSecrets(&settings, normalizeSettings(saved))
 	if err := validateEnabledStorageProviderTypes(settings.Private.Storage.Providers); err != nil {
 		return model.Settings{}, err
@@ -149,9 +140,6 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if setting.ModelChannel.AvailableWorkflows == nil {
 		setting.ModelChannel.AvailableWorkflows = []string{}
 	}
-	if setting.ModelChannel.ModelCosts == nil {
-		setting.ModelChannel.ModelCosts = []model.ModelCost{}
-	}
 	if setting.ModelChannel.Channels == nil {
 		setting.ModelChannel.Channels = []model.PublicModelChannelInfo{}
 	}
@@ -170,24 +158,9 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if strings.TrimSpace(setting.ModelChannel.SystemPrompts.WorkflowAgent) == "" {
 		setting.ModelChannel.SystemPrompts.WorkflowAgent = DefaultSystemPrompts().WorkflowAgent
 	}
-	for i := range setting.ModelChannel.ModelCosts {
-		setting.ModelChannel.ModelCosts[i].Model = strings.TrimSpace(setting.ModelChannel.ModelCosts[i].Model)
-		if setting.ModelChannel.ModelCosts[i].Credits < 0 {
-			setting.ModelChannel.ModelCosts[i].Credits = 0
-		}
-		setting.ModelChannel.ModelCosts[i].Credits = normalizeCredits(setting.ModelChannel.ModelCosts[i].Credits)
-	}
 	if setting.ModelChannel.AllowCustomChannel == nil {
 		enabled := true
 		setting.ModelChannel.AllowCustomChannel = &enabled
-	}
-	if setting.ModelChannel.AllowUserRemoteChannel == nil {
-		enabled := false
-		setting.ModelChannel.AllowUserRemoteChannel = &enabled
-	}
-	if setting.Auth.AllowRegister == nil {
-		enabled := true
-		setting.Auth.AllowRegister = &enabled
 	}
 	setting.ModelChannel.AvailableModels = filterEnabledModels(setting.ModelChannel.AvailableModels, enabledChannelModels(channels))
 	workflows := []string{}
@@ -197,7 +170,7 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 		}
 		for _, entry := range channel.Workflows {
 			if entry.Enabled && entry.Provider == channel.Protocol {
-				workflows = append(workflows, workflowBillingName(WorkflowRef{Scope: "system", ChannelID: channel.ID, Kind: entry.Kind, WorkflowID: entry.WorkflowID}))
+				workflows = append(workflows, workflowEntryName(WorkflowRef{Scope: "system", ChannelID: channel.ID, Kind: entry.Kind, WorkflowID: entry.WorkflowID}))
 			}
 		}
 	}
@@ -207,20 +180,6 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	setting.ModelChannel.DefaultVideoModel = repairDefaultModel(setting.ModelChannel.DefaultVideoModel, setting.ModelChannel.AvailableModels, isVideoModelName)
 	setting.ModelChannel.DefaultModel = repairDefaultModel(setting.ModelChannel.DefaultModel, setting.ModelChannel.AvailableModels, isTextModelName)
 	return setting
-}
-
-func ModelCost(modelName string) (float64, error) {
-	settings, err := repository.GetSettings()
-	if err != nil {
-		return 0, err
-	}
-	modelName = strings.TrimSpace(modelName)
-	for _, item := range normalizePublicSetting(settings.Public).ModelChannel.ModelCosts {
-		if item.Model == modelName {
-			return item.Credits, nil
-		}
-	}
-	return 0, nil
 }
 
 func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting {
@@ -253,13 +212,11 @@ func normalizePrivateSetting(setting model.PrivateSetting) model.PrivateSetting 
 func hidePrivateAPIKeys(settings model.Settings) model.Settings {
 	for i := range settings.Private.Channels {
 		settings.Private.Channels[i].APIKey = ""
-		settings.Private.Channels[i].UploadAPIKey = ""
 	}
 	for i := range settings.Private.Storage.Providers {
 		settings.Private.Storage.Providers[i].SecretAccessKey = ""
 		settings.Private.Storage.Providers[i].Password = ""
 	}
-	settings.Private.Auth.LinuxDo.ClientSecret = ""
 	return settings
 }
 
@@ -281,17 +238,8 @@ func keepPrivateAPIKeys(settings *model.Settings, saved model.Settings) {
 			if strings.TrimSpace(settings.Private.Channels[i].APIKey) == "" {
 				settings.Private.Channels[i].APIKey = channel.APIKey
 			}
-			if strings.TrimSpace(settings.Private.Channels[i].UploadAPIKey) == "" {
-				settings.Private.Channels[i].UploadAPIKey = channel.UploadAPIKey
-			}
 			break
 		}
-	}
-}
-
-func keepPrivateAuthSecrets(settings *model.Settings, saved model.Settings) {
-	if strings.TrimSpace(settings.Private.Auth.LinuxDo.ClientSecret) == "" {
-		settings.Private.Auth.LinuxDo.ClientSecret = saved.Private.Auth.LinuxDo.ClientSecret
 	}
 }
 
@@ -1015,7 +963,7 @@ func validateEnabledStorageProviderTypes(providers []model.StorageProvider) erro
 func normalizePrivateStorageSetting(setting model.PrivateStorageSetting) model.PrivateStorageSetting {
 	if setting.Mode == "" {
 		setting.Mode = "local_indexeddb"
-		setting.AllowUserGlobalProvider = true
+		setting.UseGlobalProvider = true
 	}
 	if setting.CapacityLimitBytes <= 0 {
 		setting.CapacityLimitBytes = 9 * 1024 * 1024 * 1024
@@ -1074,7 +1022,7 @@ func stableStorageProviderID(provider model.StorageProvider) string {
 	if provider.Type == model.StorageProviderTypeWebDAV {
 		webDAVPath = provider.PathPrefix
 	}
-	return "storage-" + providerSecureHash([]string{provider.OwnerUserID, provider.Type, provider.Name, provider.Endpoint, provider.Bucket, webDAVPath})
+	return "storage-" + providerSecureHash([]string{provider.OwnerWorkspaceID, provider.Type, provider.Name, provider.Endpoint, provider.Bucket, webDAVPath})
 }
 
 func stableModelChannelID(channel model.ModelChannel) string {
@@ -1115,7 +1063,7 @@ func publicChannelInfos(channels []model.ModelChannel, availableModels, availabl
 		if isWorkflowChannelProtocol(channel.Protocol) {
 			workflows := []model.WorkflowSummary{}
 			for _, entry := range channel.Workflows {
-				if !entry.Enabled || entry.Provider != channel.Protocol || (len(availableWorkflows) > 0 && !allowed[workflowBillingName(WorkflowRef{Scope: "system", ChannelID: channel.ID, Kind: entry.Kind, WorkflowID: entry.WorkflowID})]) {
+				if !entry.Enabled || entry.Provider != channel.Protocol || (len(availableWorkflows) > 0 && !allowed[workflowEntryName(WorkflowRef{Scope: "system", ChannelID: channel.ID, Kind: entry.Kind, WorkflowID: entry.WorkflowID})]) {
 					continue
 				}
 				workflows = append(workflows, model.WorkflowSummary{

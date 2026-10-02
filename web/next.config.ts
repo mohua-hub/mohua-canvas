@@ -1,5 +1,4 @@
 import type { NextConfig } from "next";
-import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -9,14 +8,12 @@ const webDir = dirname(fileURLToPath(import.meta.url));
 const localVersion = readFileSync(resolve(webDir, "../VERSION"), "utf8").trim() || "dev";
 const localChangelog = readFileSync(resolve(webDir, "../CHANGELOG.md"), "utf8");
 
-export default function nextConfig(phase: string): NextConfig {
-    const isDev = phase === PHASE_DEVELOPMENT_SERVER;
+export default function nextConfig(): NextConfig {
     const releases = parseChangelog(localChangelog);
 
     return {
         output: "standalone",
         outputFileTracingRoot: webDir,
-        allowedDevOrigins: isDev ? ["*.*.*.*"] : [],
         typescript: {
             ignoreBuildErrors: true,
         },

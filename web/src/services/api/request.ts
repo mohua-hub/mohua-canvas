@@ -22,32 +22,29 @@ export function serializeApiParams(params?: ApiParams) {
     return queryParams;
 }
 
-export async function apiGet<T>(url: string, params?: ApiParams, token?: string) {
+export async function apiGet<T>(url: string, params?: ApiParams) {
     return apiRequest<T>({
         url,
         method: "GET",
         params: params || undefined,
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
 }
 
-export async function apiPost<T>(url: string, body?: unknown, token?: string) {
+export async function apiPost<T>(url: string, body?: unknown) {
     return apiRequest<T>({
         url,
         method: "POST",
         data: body ?? {},
         headers: {
             "Content-Type": "application/json",
-            ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
     });
 }
 
-export async function apiDelete<T>(url: string, token?: string) {
+export async function apiDelete<T>(url: string) {
     return apiRequest<T>({
         url,
         method: "DELETE",
-        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
     });
 }
 

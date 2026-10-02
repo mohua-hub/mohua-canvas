@@ -30,16 +30,16 @@ func TestValidateEnabledStorageProviderTypes(t *testing.T) {
 	}
 }
 
-func TestValidateUserStorageProviderTypes(t *testing.T) {
+func TestValidateCustomStorageProviderTypes(t *testing.T) {
 	enabled := true
 	disabled := false
-	if err := validateUserStorageProviderTypes(UserStorageProviders{
+	if err := validateCustomStorageProviderTypes(CustomStorageProviders{
 		S3:     &StorageObjectProviderInput{Enabled: &enabled},
 		WebDAV: &StorageObjectProviderInput{Enabled: &disabled},
 	}); err != nil {
 		t.Fatalf("only one enabled user provider should be allowed: %v", err)
 	}
-	if err := validateUserStorageProviderTypes(UserStorageProviders{
+	if err := validateCustomStorageProviderTypes(CustomStorageProviders{
 		S3:     &StorageObjectProviderInput{Enabled: &enabled},
 		WebDAV: &StorageObjectProviderInput{Enabled: &enabled},
 	}); err == nil {

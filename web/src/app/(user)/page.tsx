@@ -175,7 +175,7 @@ export default function IndexPage() {
                     </div>
                     {promptShowcaseUnavailable ? (
                         <p role="status" className="py-8 text-center text-sm text-stone-500 dark:text-stone-400">
-                            提示词展示暂不可用，画布和本地素材仍可使用。提示词库、登录及云端功能需要连接后端服务。
+                            提示词展示暂不可用，画布和本地素材仍可使用。提示词库及云端功能需要连接后端服务。
                         </p>
                     ) : null}
                     <div className="grid auto-rows-[210px] gap-4 md:grid-cols-4">

@@ -28,7 +28,7 @@ import { comfyOutputStorageKey, getWorkflowTask, isRetryableWorkflowError, submi
 import { useAssetStore } from "@/stores/use-asset-store";
 import { channelProtocolForConfig, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type VideoElementItem, type VideoElementReference } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
@@ -103,7 +103,7 @@ type GenerationLogConfig = Pick<AiConfig, "channelMode" | "activeChannelId" | "v
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 type WorkbenchLayout = "side" | "bottom";
 type AssetPickerTarget = "general" | "image" | "video" | "audio" | "firstFrame" | "lastFrame" | "element";
-type WorkflowPollContext = { token: string; signal: AbortSignal };
+type WorkflowPollContext = { signal: AbortSignal };
 
 const WORKBENCH_LAYOUT_KEY = "infinite-canvas:video-workbench-layout";
 const logStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
@@ -126,9 +126,9 @@ export default function VideoPage() {
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
-    const token = useUserStore((state) => state.token);
-    const userId = useUserStore((state) => state.user?.id || "");
-    const isUserReady = useUserStore((state) => state.isReady);
+    const backendConnected = useBackendStore((state) => state.available);
+    const workspaceId = "default";
+    const isBackendReady = useBackendStore((state) => state.isReady);
     const [prompt, setPrompt] = useState("");
     const [negativePrompt, setNegativePrompt] = useState("");
     const [references, setReferences] = useState<ReferenceImage[]>([]);
@@ -173,7 +173,7 @@ export default function VideoPage() {
     const referenceImageLimit = klingOmni === "text-to-video" ? 0 : klingOmni === "image-to-video" ? 2 : klingOmni === "transformation" ? 4 : isKlingWorkbench && klingOmni !== "reference-to-video" ? 2 : referenceLimits.images;
     const videoReferenceLimit = klingAcceptsVideoReferences ? 1 : referenceLimits.videos;
     const pendingLogCount = logs.filter((log) => log.status === "生成中" && log.task && !log.video).length;
-    const usesBackendVideoTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(token));
+    const usesBackendVideoTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(backendConnected));
 
     useEffect(() => {
         if (autodl && autodlError) message.error(autodlError.message);
@@ -193,7 +193,7 @@ export default function VideoPage() {
             const resumeConfig = buildResumeVideoConfig(effectiveConfigRef.current, log);
             const taskId = videoLogTaskId(log);
             if (!taskId || (!log.providerWorkflowRef && !isAiConfigReady(resumeConfig, log.model))) return;
-            if (log.providerWorkflowRef && !context.token) return;
+            if (log.providerWorkflowRef && !useBackendStore.getState().available) return;
             if (isLocalClientVideoLog(log) && !usesBackendVideoTasks(resumeConfig)) return;
             void pollPendingLogOnce(log, resumeConfig, context);
         });
@@ -212,7 +212,7 @@ export default function VideoPage() {
     useEffect(() => {
         if (!pendingLogCount) return;
         const controller = new AbortController();
-        const context = { token: token || "", signal: controller.signal };
+        const context = { signal: controller.signal };
         const timer = window.setInterval(() => {
             pollPendingLogsOnce(logsRef.current, context);
         }, VIDEO_POLL_INTERVAL_MS);
@@ -220,7 +220,7 @@ export default function VideoPage() {
             controller.abort();
             window.clearInterval(timer);
         };
-    }, [pendingLogCount, token, userId]);
+    }, [pendingLogCount, backendConnected, workspaceId]);
 
     useEffect(() => {
         try {
@@ -240,13 +240,13 @@ export default function VideoPage() {
     }, [logs]);
 
     useEffect(() => {
-        if (!isUserReady) return;
-        if (token) {
+        if (!isBackendReady) return;
+        if (backendConnected) {
             void loadAccountVideoHistory().then((items) => syncBackendVideoTasks(items));
             return;
         }
         void refreshLogs().then((items) => syncBackendVideoTasks(items));
-    }, [isUserReady, token]);
+    }, [isBackendReady, backendConnected]);
 
     const setWorkbenchLayout = (layout: WorkbenchLayout) => {
         setWorkbenchLayoutState(layout);
@@ -587,7 +587,7 @@ export default function VideoPage() {
         const text = promptText.trim();
         const currentNegativePrompt = (negativePromptText ?? configValue.videoNegativePrompt ?? negativePrompt).trim();
         if (workflowRef) {
-            if (!token) { message.error("工作流生成需要先登录"); return null; }
+            if (!backendConnected) { message.error("工作流生成需要连接后端服务"); return null; }
             return { text, model: modelValue, config: { ...configValue, videoNegativePrompt: currentNegativePrompt }, references: [...referenceItems], firstFrame: firstFrameItem, lastFrame: lastFrameItem, videoReferences: [...videoReferenceItems], audioReferences: [...audioReferenceItems], taskCount: normalizeVideoCount(taskCountValue), workflowRef };
         }
         const klingV26 = isAPIMartKlingV26Config(configValue, modelValue);
@@ -654,9 +654,8 @@ export default function VideoPage() {
     };
 
     const submitGenerationSnapshot = async (snapshot: { text: string; model: string; config: AiConfig; references: ReferenceImage[]; firstFrame?: ReferenceImage | null; lastFrame?: ReferenceImage | null; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; taskCount: number; workflowRef?: WorkflowRef | null }) => {
-        const workflowToken = snapshot.workflowRef ? useUserStore.getState().token : "";
         const submissionId = snapshot.workflowRef ? ++workflowSubmissionRef.current : 0;
-        const active = () => !snapshot.workflowRef || useUserStore.getState().token === workflowToken;
+        const active = () => !snapshot.workflowRef || useBackendStore.getState().available;
         setRunning(true);
         setPreviewLog(null);
         setNow(Date.now());
@@ -670,7 +669,7 @@ export default function VideoPage() {
             if (!active()) return;
             setLogs((value) => sortVideoLogs([...pendingLogs, ...value]));
             setResults((value) => sortVideoResults([...pendingLogs.map((log) => createResultFromLog(log, "pending")), ...value]));
-            const settled = await Promise.allSettled(pendingLogs.map((log) => runVideoTask(log, snapshot, workflowToken, active)));
+            const settled = await Promise.allSettled(pendingLogs.map((log) => runVideoTask(log, snapshot, active)));
             if (!active()) return;
             const nextLogs = settled
                 .map((item) => (item.status === "fulfilled" ? item.value : null))
@@ -687,18 +686,18 @@ export default function VideoPage() {
         }
     };
 
-    const runVideoTask = async (pendingLog: GenerationLog, snapshot: { text: string; model: string; config: AiConfig; references: ReferenceImage[]; firstFrame?: ReferenceImage | null; lastFrame?: ReferenceImage | null; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; taskCount: number; workflowRef?: WorkflowRef | null }, workflowToken: string, active: () => boolean) => {
+    const runVideoTask = async (pendingLog: GenerationLog, snapshot: { text: string; model: string; config: AiConfig; references: ReferenceImage[]; firstFrame?: ReferenceImage | null; lastFrame?: ReferenceImage | null; videoReferences: ReferenceVideo[]; audioReferences: ReferenceAudio[]; taskCount: number; workflowRef?: WorkflowRef | null }, active: () => boolean) => {
         try {
             if (snapshot.workflowRef) {
-                if (!workflowToken) throw new Error("工作流生成需要先登录");
+                if (!useBackendStore.getState().available) throw new Error("工作流生成需要连接后端服务");
                 const referenceImages = [snapshot.firstFrame, ...snapshot.references, snapshot.lastFrame].filter((item): item is ReferenceImage => Boolean(item));
                 const [workflowImages, workflowVideos, workflowAudios] = await Promise.all([
                     Promise.all(referenceImages.map((item) => workflowMediaSource(item.dataUrl))),
                     Promise.all(snapshot.videoReferences.map((item) => workflowMediaSource(item.url))),
                     Promise.all(snapshot.audioReferences.map((item) => workflowMediaSource(item.url))),
                 ]);
-                if (!active()) throw new Error("登录状态已变化");
-                const submitted = await submitWorkflowTask(workflowToken, {
+                if (!active()) throw new Error("后端连接已变化");
+                const submitted = await submitWorkflowTask({
                     ref: snapshot.workflowRef,
                     expectedCapability: "video",
                     prompt: snapshot.text,
@@ -715,13 +714,13 @@ export default function VideoPage() {
                     sourceId: pendingLog.id,
                     clientTaskId: pendingLog.task?.id,
                 });
-                if (!active()) throw new Error("登录状态已变化");
+                if (!active()) throw new Error("后端连接已变化");
                 const task: VideoResponse = { id: submitted.id, task_id: submitted.id, status: submitted.status, progress: submitted.progress, model: snapshot.model, workflowRef: JSON.stringify(snapshot.workflowRef), size: snapshot.config.size, seconds: snapshot.config.videoSeconds };
                 const nextLog = { ...pendingLog, task, lastPolledAt: Date.now() };
                 await saveGenerationLog(nextLog, active);
-                if (!active()) throw new Error("登录状态已变化");
+                if (!active()) throw new Error("后端连接已变化");
                 await persistVideoLog(nextLog);
-                if (!active()) throw new Error("登录状态已变化");
+                if (!active()) throw new Error("后端连接已变化");
                 setResults((value) => updateResultByLogId(value, pendingLog.id, { task, progress: task.progress, lastPolledAt: nextLog.lastPolledAt }));
                 return nextLog;
             }
@@ -958,15 +957,15 @@ export default function VideoPage() {
 
     const deleteBackendVideoTasks = async (items: GenerationLog[]) => {
         const config = effectiveConfigRef.current;
-        if (!token || !usesBackendVideoTasks(config)) return;
+        if (!backendConnected || !usesBackendVideoTasks(config)) return;
         await Promise.all(items.filter((item) => item.task && !isLocalClientVideoTask(item.task)).map((item) => deleteVideoGenerationTask(config, item.task).catch(() => undefined)));
     };
 
     const deleteAccountVideoLogs = async (items: GenerationLog[]) => {
-        if (!token) return;
+        if (!backendConnected) return;
         const ids = Array.from(new Set(items.flatMap(videoLogDeleteKeys)));
         if (!ids.length) return;
-        await deleteVideoGenerationLogs(token, ids).catch(() => undefined);
+        await deleteVideoGenerationLogs(ids).catch(() => undefined);
     };
 
     const refreshLogs = async () => {
@@ -977,7 +976,7 @@ export default function VideoPage() {
 
     const syncBackendVideoTasks = async (baseLogs?: GenerationLog[]) => {
         const config = effectiveConfigRef.current;
-        if (!token || !usesBackendVideoTasks(config)) return baseLogs || logsRef.current;
+        if (!backendConnected || !usesBackendVideoTasks(config)) return baseLogs || logsRef.current;
         try {
             const tasks = await listVideoGenerationTasks(config);
             const recoverableTasks = tasks.filter(isRecoverableBackendVideoTask);
@@ -998,20 +997,20 @@ export default function VideoPage() {
     const loadAccountVideoHistory = async () => {
         try {
             const localLogs = await readStoredLogs();
-            const remoteLogs = await fetchVideoGenerationLogs<GenerationLog>(token);
+            const remoteLogs = await fetchVideoGenerationLogs<GenerationLog>();
             const mergedLogs = await mergeVideoLogs(remoteLogs, localLogs);
             await replaceStoredVideoHistory(mergedLogs);
             setLogs(mergedLogs);
             return mergedLogs;
         } catch {
-            // Keep local video history available when account sync fails.
+            // Keep local video history available when workspace sync fails.
             return undefined;
         }
     };
 
     const persistVideoLog = async (log: GenerationLog) => {
-        if (!token || !shouldSyncVideoLog(log)) return;
-        await saveVideoGenerationLogs(token, [serializeLog(log)]).catch(() => undefined);
+        if (!backendConnected || !shouldSyncVideoLog(log)) return;
+        await saveVideoGenerationLogs([serializeLog(log)]).catch(() => undefined);
     };
 
     const saveGenerationLog = async (log: GenerationLog, active: () => boolean = () => true) => {
@@ -1031,12 +1030,12 @@ export default function VideoPage() {
     };
 
     const pollPendingLogOnce = async (log: GenerationLog, resumeConfig: AiConfig, context: WorkflowPollContext) => {
-        const active = () => !log.providerWorkflowRef || (!context.signal.aborted && useUserStore.getState().token === context.token);
+        const active = () => !log.providerWorkflowRef || (!context.signal.aborted && useBackendStore.getState().available);
         if (!active()) return;
         pollingLogIdsRef.current.add(log.id);
         const startedAt = log.createdAt || Date.now();
         try {
-            const workflowTask = log.providerWorkflowRef ? await getWorkflowTask(context.token, videoLogTaskId(log), context.signal) : null;
+            const workflowTask = log.providerWorkflowRef ? await getWorkflowTask(videoLogTaskId(log), context.signal) : null;
             if (!active()) return;
             const workflowURL = workflowTask?.urls?.[0] || "";
             const task = workflowTask ? { ...log.task!, status: workflowTask.status, progress: workflowTask.progress, video_url: workflowURL, url: workflowURL, storageKey: comfyOutputStorageKey(workflowURL) || undefined, error: workflowTask.error ? { message: workflowTask.error } : undefined } : await pollVideoGenerationTaskStatus(resumeConfig, log.task!);
@@ -1060,7 +1059,7 @@ export default function VideoPage() {
                 }
                 const workflowVideo = workflowTask && !comfyOutputStorageKey(task.video_url || task.url || "") ? await downloadRemoteMedia(task.video_url || task.url || "") : null;
                 if (!active()) return;
-                const uploaded = workflowVideo ? await uploadMediaFile(workflowVideo, "workflow-video", undefined, context.token) : null;
+                const uploaded = workflowVideo ? await uploadMediaFile(workflowVideo, "workflow-video", undefined) : null;
                 if (!active()) return;
                 const video = uploaded ? { ...videoFromTaskResponse(task, durationMs), url: uploaded.url, storageKey: uploaded.storageKey, bytes: uploaded.bytes, mimeType: uploaded.mimeType, width: uploaded.width || 1280, height: uploaded.height || 720 } : videoFromTaskResponse(task, durationMs);
                 const nextLog = { ...baseLog, status: "成功" as const, video, error: undefined, errorDetail: undefined };
@@ -2894,7 +2893,7 @@ function buildVideoConfig(config: AiConfig, model: string): AiConfig {
 }
 
 function videoTaskChannelId(task?: VideoResponse | null) {
-    return task?.userChannelId || task?.channelId || "";
+    return task?.localChannelId || task?.channelId || "";
 }
 
 function resolveVideoChannelId(config: AiConfig, model: string, ...preferredIds: Array<string | undefined>) {

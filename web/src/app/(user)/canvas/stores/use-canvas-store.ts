@@ -4,8 +4,8 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { listCanvasProjects, saveCanvasProject, syncCanvasProjects } from "@/services/api/canvas-tasks";
-import { fetchUserConfig } from "@/services/api/user-config";
-import { useUserStore } from "@/stores/use-user-store";
+import { fetchWorkspaceConfig } from "@/services/api/workspace-config";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import type { CanvasAgentConfig, CanvasAssistantSession, CanvasConnection, CanvasNodeData, CanvasPendingAgentRequest, ViewportTransform } from "../types";
 
@@ -45,7 +45,7 @@ type CanvasStore = {
     renameProject: (id: string, title: string) => void;
     deleteProjects: (ids: string[]) => void;
     updateProject: (id: string, patch: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId" | "agentConfig" | "autoTitlePending" | "backgroundMode" | "showImageInfo" | "viewport" | "sidePanel" | "agentPanel" | "pendingAgentRequest">>) => void;
-    syncWithRemote: (token: string, syncEnabled: boolean) => Promise<void>;
+    syncWithRemote: (syncEnabled: boolean) => Promise<void>;
     setSyncEnabled: (enabled: boolean) => void;
 };
 
@@ -54,28 +54,14 @@ const CANVAS_STORE_KEY = "infinite-canvas:canvas_store";
 type PersistedCanvasState = Pick<CanvasStore, "projects">;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 let queuedPersistState: PersistedCanvasState | null = null;
-let accountCanvasSyncEnabled = false;
+let workspaceCanvasSyncEnabled = false;
 const projectSaveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-function waitForUserStoreHydration() {
-    if (useUserStore.persist.hasHydrated()) return Promise.resolve();
-
-    return new Promise<void>((resolve) => {
-        let unsubscribe = () => { };
-        unsubscribe = useUserStore.persist.onFinishHydration(() => {
-            unsubscribe();
-            resolve();
-        });
-        if (useUserStore.persist.hasHydrated()) {
-            unsubscribe();
-            resolve();
-        }
-    });
-}
+function waitForBackendReady() { return useBackendStore.getState().initialize(); }
 
 function queueProjectSave(project: CanvasProject) {
-    const token = useUserStore.getState().token;
-    const syncEnabled = accountCanvasSyncEnabled;
+    const backendConnected = useBackendStore.getState().available;
+    const syncEnabled = workspaceCanvasSyncEnabled;
     const previous = projectSaveTimers.get(project.id);
     if (previous) clearTimeout(previous);
 
@@ -84,14 +70,14 @@ function queueProjectSave(project: CanvasProject) {
         setTimeout(() => {
             projectSaveTimers.delete(project.id);
             if (
-                !token ||
+                !backendConnected ||
                 !syncEnabled ||
-                !accountCanvasSyncEnabled ||
-                useUserStore.getState().token !== token
+                !workspaceCanvasSyncEnabled ||
+                useBackendStore.getState().available !== backendConnected
             ) {
                 return;
             }
-            void saveCanvasProject(token, project).catch(() => undefined);
+            void saveCanvasProject(project).catch(() => undefined);
         }, 400),
     );
 }
@@ -106,7 +92,6 @@ function cancelProjectSaves(ids: string[]) {
 }
 
 async function reconcileCanvasProjects(
-    token: string,
     remoteProjects: CanvasProject[],
     localProjects: CanvasProject[],
 ) {
@@ -120,7 +105,7 @@ async function reconcileCanvasProjects(
         remoteById.has(project.id),
     );
     const projects = missingProjects.length
-        ? await syncCanvasProjects(token, missingProjects)
+        ? await syncCanvasProjects(missingProjects)
             .then((syncedProjects) =>
                 mergeCanvasProjects(
                     syncedProjects,
@@ -148,9 +133,9 @@ async function reconcileCanvasProjects(
 
 const canvasStorage: PersistStorage<CanvasStore> = {
     getItem: async (name) => {
-        await waitForUserStoreHydration();
+        await waitForBackendReady();
         const localValue = await localForageStorage.getItem(name);
-        const token = useUserStore.getState().token;
+        const backendConnected = useBackendStore.getState().available;
         const localParsed = localValue
             ? (JSON.parse(localValue) as StorageValue<CanvasStore>)
             : null;
@@ -159,18 +144,17 @@ const canvasStorage: PersistStorage<CanvasStore> = {
         const localHasData =
             Array.isArray(localProjects) && localProjects.length > 0;
 
-        if (token) {
+        if (backendConnected) {
             try {
                 const [userConfig, remoteProjects] = await Promise.all([
-                    fetchUserConfig(token),
-                    listCanvasProjects(token),
+                    fetchWorkspaceConfig(),
+                    listCanvasProjects(),
                 ]);
-                accountCanvasSyncEnabled =
-                    userConfig.syncCapabilities?.userData === true;
+                workspaceCanvasSyncEnabled =
+                    userConfig.syncCapabilities?.workspaceData === true;
 
-                if (accountCanvasSyncEnabled && localHasData) {
+                if (workspaceCanvasSyncEnabled && localHasData) {
                     const projects = await reconcileCanvasProjects(
-                        token,
                         remoteProjects,
                         localProjects,
                     );
@@ -190,7 +174,7 @@ const canvasStorage: PersistStorage<CanvasStore> = {
 
                 if (
                     remoteProjects.length > 0 &&
-                    (accountCanvasSyncEnabled || !localHasData)
+                    (workspaceCanvasSyncEnabled || !localHasData)
                 ) {
                     const nextState = { projects: remoteProjects };
                     const parsed = {
@@ -337,16 +321,15 @@ export const useCanvasStore = create<CanvasStore>()(
                 }));
                 queueProjectSave(nextProject);
             },
-            syncWithRemote: async (token, syncEnabled) => {
-                accountCanvasSyncEnabled = syncEnabled;
+            syncWithRemote: async (syncEnabled) => {
+                workspaceCanvasSyncEnabled = syncEnabled;
                 if (!syncEnabled) return;
                 const localProjects = get().projects;
-                const remoteProjects = await listCanvasProjects(token).catch(
+                const remoteProjects = await listCanvasProjects().catch(
                     () => null,
                 );
                 if (!remoteProjects) return;
                 const projects = await reconcileCanvasProjects(
-                    token,
                     remoteProjects,
                     localProjects,
                 );
@@ -363,7 +346,7 @@ export const useCanvasStore = create<CanvasStore>()(
                 );
             },
             setSyncEnabled: (enabled) => {
-                accountCanvasSyncEnabled = enabled;
+                workspaceCanvasSyncEnabled = enabled;
             },
         }),
         {

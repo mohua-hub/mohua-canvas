@@ -6,7 +6,7 @@ import (
 	"github.com/tigerowo/infinite-canvas/model"
 )
 
-func ListVideoGenerationLogs(userID string, limit int) ([]model.VideoGenerationLog, error) {
+func ListVideoGenerationLogs(workspaceID string, limit int) ([]model.VideoGenerationLog, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -15,47 +15,47 @@ func ListVideoGenerationLogs(userID string, limit int) ([]model.VideoGenerationL
 		limit = 500
 	}
 	var logs []model.VideoGenerationLog
-	err = db.Where("user_id = ? AND deleted_at = ?", userID, "").Order("created_at DESC").Limit(limit).Find(&logs).Error
+	err = db.Where("workspace_id = ? AND deleted_at = ?", workspaceID, "").Order("created_at DESC").Limit(limit).Find(&logs).Error
 	return logs, err
 }
 
-func HasAnyVideoGenerationLog(userID string) (bool, error) {
+func HasAnyVideoGenerationLog(workspaceID string) (bool, error) {
 	db, err := DB()
 	if err != nil {
 		return false, err
 	}
 	var count int64
-	err = db.Model(&model.VideoGenerationLog{}).Where("user_id = ?", userID).Count(&count).Error
+	err = db.Model(&model.VideoGenerationLog{}).Where("workspace_id = ?", workspaceID).Count(&count).Error
 	return count > 0, err
 }
 
-func UpsertVideoGenerationLogs(userID string, logs []model.VideoGenerationLog) error {
+func UpsertVideoGenerationLogs(workspaceID string, logs []model.VideoGenerationLog) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
 	for _, log := range logs {
-		log.UserID = userID
-		if strings.TrimSpace(log.ID) == "" || isDeletedVideoGenerationLog(userID, log) {
+		log.WorkspaceID = workspaceID
+		if strings.TrimSpace(log.ID) == "" || isDeletedVideoGenerationLog(workspaceID, log) {
 			continue
 		}
 		var existing model.VideoGenerationLog
 		found := false
-		if err := db.Where("user_id = ? AND id = ?", userID, log.ID).First(&existing).Error; err == nil {
+		if err := db.Where("workspace_id = ? AND id = ?", workspaceID, log.ID).First(&existing).Error; err == nil {
 			found = true
 		} else if log.TaskID != "" {
-			if err := db.Where("user_id = ? AND deleted_at = ? AND task_id = ?", userID, "", log.TaskID).First(&existing).Error; err == nil {
+			if err := db.Where("workspace_id = ? AND deleted_at = ? AND task_id = ?", workspaceID, "", log.TaskID).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
 		if !found && log.VideoID != "" {
-			if err := db.Where("user_id = ? AND deleted_at = ? AND video_id = ?", userID, "", log.VideoID).First(&existing).Error; err == nil {
+			if err := db.Where("workspace_id = ? AND deleted_at = ? AND video_id = ?", workspaceID, "", log.VideoID).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
 		if found {
 			log.ID = existing.ID
-			log.UserID = userID
+			log.WorkspaceID = workspaceID
 			log.DeletedAt = ""
 		}
 		if err := db.Save(&log).Error; err != nil {
@@ -65,13 +65,13 @@ func UpsertVideoGenerationLogs(userID string, logs []model.VideoGenerationLog) e
 	return nil
 }
 
-func SoftDeleteVideoGenerationLog(userID string, id string, deletedAt string) error {
+func SoftDeleteVideoGenerationLog(workspaceID string, id string, deletedAt string) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
 	var log model.VideoGenerationLog
-	err = db.Where("user_id = ? AND (id = ? OR task_id = ? OR video_id = ?)", userID, id, id, id).First(&log).Error
+	err = db.Where("workspace_id = ? AND (id = ? OR task_id = ? OR video_id = ?)", workspaceID, id, id, id).First(&log).Error
 	if err != nil {
 		return nil
 	}
@@ -82,7 +82,7 @@ func SoftDeleteVideoGenerationLog(userID string, id string, deletedAt string) er
 	}).Error
 }
 
-func SoftDeleteVideoGenerationLogs(userID string, ids []string, deletedAt string) error {
+func SoftDeleteVideoGenerationLogs(workspaceID string, ids []string, deletedAt string) error {
 	db, err := DB()
 	if err != nil {
 		return err
@@ -92,7 +92,7 @@ func SoftDeleteVideoGenerationLogs(userID string, ids []string, deletedAt string
 		return nil
 	}
 	return db.Model(&model.VideoGenerationLog{}).
-		Where("user_id = ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", userID, keys, keys, keys).
+		Where("workspace_id = ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", workspaceID, keys, keys, keys).
 		Updates(map[string]any{
 			"deleted_at":   deletedAt,
 			"updated_at":   deletedAt,
@@ -108,7 +108,7 @@ func CleanupDeletedVideoGenerationLogs(before string) error {
 	return db.Where("deleted_at <> ? AND deleted_at < ?", "", before).Delete(&model.VideoGenerationLog{}).Error
 }
 
-func ListImageGenerationLogs(userID string, limit int) ([]model.ImageGenerationLog, error) {
+func ListImageGenerationLogs(workspaceID string, limit int) ([]model.ImageGenerationLog, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -117,47 +117,47 @@ func ListImageGenerationLogs(userID string, limit int) ([]model.ImageGenerationL
 		limit = 500
 	}
 	var logs []model.ImageGenerationLog
-	err = db.Where("user_id = ? AND deleted_at = ?", userID, "").Order("created_at DESC").Limit(limit).Find(&logs).Error
+	err = db.Where("workspace_id = ? AND deleted_at = ?", workspaceID, "").Order("created_at DESC").Limit(limit).Find(&logs).Error
 	return logs, err
 }
 
-func HasAnyImageGenerationLog(userID string) (bool, error) {
+func HasAnyImageGenerationLog(workspaceID string) (bool, error) {
 	db, err := DB()
 	if err != nil {
 		return false, err
 	}
 	var count int64
-	err = db.Model(&model.ImageGenerationLog{}).Where("user_id = ?", userID).Count(&count).Error
+	err = db.Model(&model.ImageGenerationLog{}).Where("workspace_id = ?", workspaceID).Count(&count).Error
 	return count > 0, err
 }
 
-func UpsertImageGenerationLogs(userID string, logs []model.ImageGenerationLog) error {
+func UpsertImageGenerationLogs(workspaceID string, logs []model.ImageGenerationLog) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
 	for _, log := range logs {
-		log.UserID = userID
-		if strings.TrimSpace(log.ID) == "" || isDeletedImageGenerationLog(userID, log) {
+		log.WorkspaceID = workspaceID
+		if strings.TrimSpace(log.ID) == "" || isDeletedImageGenerationLog(workspaceID, log) {
 			continue
 		}
 		var existing model.ImageGenerationLog
 		found := false
-		if err := db.Where("user_id = ? AND id = ?", userID, log.ID).First(&existing).Error; err == nil {
+		if err := db.Where("workspace_id = ? AND id = ?", workspaceID, log.ID).First(&existing).Error; err == nil {
 			found = true
 		} else if log.TaskID != "" {
-			if err := db.Where("user_id = ? AND deleted_at = ? AND task_id = ?", userID, "", log.TaskID).First(&existing).Error; err == nil {
+			if err := db.Where("workspace_id = ? AND deleted_at = ? AND task_id = ?", workspaceID, "", log.TaskID).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
 		if !found && log.ImageID != "" {
-			if err := db.Where("user_id = ? AND deleted_at = ? AND image_id = ?", userID, "", log.ImageID).First(&existing).Error; err == nil {
+			if err := db.Where("workspace_id = ? AND deleted_at = ? AND image_id = ?", workspaceID, "", log.ImageID).First(&existing).Error; err == nil {
 				found = true
 			}
 		}
 		if found {
 			log.ID = existing.ID
-			log.UserID = userID
+			log.WorkspaceID = workspaceID
 			log.DeletedAt = ""
 		}
 		if err := db.Save(&log).Error; err != nil {
@@ -167,13 +167,13 @@ func UpsertImageGenerationLogs(userID string, logs []model.ImageGenerationLog) e
 	return nil
 }
 
-func SoftDeleteImageGenerationLog(userID string, id string, deletedAt string) error {
+func SoftDeleteImageGenerationLog(workspaceID string, id string, deletedAt string) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
 	var log model.ImageGenerationLog
-	err = db.Where("user_id = ? AND (id = ? OR task_id = ? OR image_id = ?)", userID, id, id, id).First(&log).Error
+	err = db.Where("workspace_id = ? AND (id = ? OR task_id = ? OR image_id = ?)", workspaceID, id, id, id).First(&log).Error
 	if err != nil {
 		return nil
 	}
@@ -184,7 +184,7 @@ func SoftDeleteImageGenerationLog(userID string, id string, deletedAt string) er
 	}).Error
 }
 
-func SoftDeleteImageGenerationLogs(userID string, ids []string, deletedAt string) error {
+func SoftDeleteImageGenerationLogs(workspaceID string, ids []string, deletedAt string) error {
 	db, err := DB()
 	if err != nil {
 		return err
@@ -194,7 +194,7 @@ func SoftDeleteImageGenerationLogs(userID string, ids []string, deletedAt string
 		return nil
 	}
 	return db.Model(&model.ImageGenerationLog{}).
-		Where("user_id = ? AND (id IN ? OR task_id IN ? OR image_id IN ?)", userID, keys, keys, keys).
+		Where("workspace_id = ? AND (id IN ? OR task_id IN ? OR image_id IN ?)", workspaceID, keys, keys, keys).
 		Updates(map[string]any{
 			"deleted_at":   deletedAt,
 			"updated_at":   deletedAt,
@@ -210,7 +210,7 @@ func CleanupDeletedImageGenerationLogs(before string) error {
 	return db.Where("deleted_at <> ? AND deleted_at < ?", "", before).Delete(&model.ImageGenerationLog{}).Error
 }
 
-func isDeletedVideoGenerationLog(userID string, log model.VideoGenerationLog) bool {
+func isDeletedVideoGenerationLog(workspaceID string, log model.VideoGenerationLog) bool {
 	db, err := DB()
 	if err != nil {
 		return false
@@ -221,12 +221,12 @@ func isDeletedVideoGenerationLog(userID string, log model.VideoGenerationLog) bo
 	}
 	var count int64
 	_ = db.Model(&model.VideoGenerationLog{}).
-		Where("user_id = ? AND deleted_at <> ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", userID, "", keys, keys, keys).
+		Where("workspace_id = ? AND deleted_at <> ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", workspaceID, "", keys, keys, keys).
 		Count(&count).Error
 	return count > 0
 }
 
-func isDeletedImageGenerationLog(userID string, log model.ImageGenerationLog) bool {
+func isDeletedImageGenerationLog(workspaceID string, log model.ImageGenerationLog) bool {
 	db, err := DB()
 	if err != nil {
 		return false
@@ -237,7 +237,7 @@ func isDeletedImageGenerationLog(userID string, log model.ImageGenerationLog) bo
 	}
 	var count int64
 	_ = db.Model(&model.ImageGenerationLog{}).
-		Where("user_id = ? AND deleted_at <> ? AND (id IN ? OR task_id IN ? OR image_id IN ?)", userID, "", keys, keys, keys).
+		Where("workspace_id = ? AND deleted_at <> ? AND (id IN ? OR task_id IN ? OR image_id IN ?)", workspaceID, "", keys, keys, keys).
 		Count(&count).Error
 	return count > 0
 }

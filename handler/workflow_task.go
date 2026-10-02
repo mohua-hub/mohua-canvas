@@ -9,17 +9,13 @@ import (
 )
 
 func CreateWorkflowTask(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		FailWithStatus(w, http.StatusUnauthorized, "请先登录")
-		return
-	}
+	workspaceID := service.WorkspaceID
 	var input service.WorkflowRunInput
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 96<<20)).Decode(&input); err != nil {
 		Fail(w, "工作流请求格式无效或超过 96MB")
 		return
 	}
-	result, err := service.CreateWorkflowTask(r.Context(), user, input)
+	result, err := service.CreateWorkflowTask(r.Context(), workspaceID, input)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -28,12 +24,8 @@ func CreateWorkflowTask(w http.ResponseWriter, r *http.Request) {
 }
 
 func GetWorkflowTask(w http.ResponseWriter, r *http.Request, id string) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		FailWithStatus(w, http.StatusUnauthorized, "请先登录")
-		return
-	}
-	result, err := service.GetWorkflowTask(r.Context(), user, id)
+	workspaceID := service.WorkspaceID
+	result, err := service.GetWorkflowTask(r.Context(), workspaceID, id)
 	if err != nil {
 		if errors.Is(err, service.ErrWorkflowTaskNotFound) {
 			FailWithStatus(w, http.StatusNotFound, err.Error())

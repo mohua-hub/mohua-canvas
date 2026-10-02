@@ -1,58 +1,26 @@
 "use client";
 
-import { useEffect, useRef, type ReactNode } from "react";
-import { usePathname, useRouter } from "next/navigation";
-
+import { useEffect, type ReactNode } from "react";
 import { AppTopNav } from "@/components/layout/app-top-nav";
-import { fetchUserConfig } from "@/services/api/user-config";
-import { useUserStore } from "@/stores/use-user-store";
+import { fetchWorkspaceConfig } from "@/services/api/workspace-config";
+import { useBackendStore } from "@/stores/use-backend-store";
 
-const protectedPrefixes = ["/asset-library"];
-
-export default function UserLayout({ children }: { children: ReactNode }) {
-    const pathname = usePathname();
-    const router = useRouter();
-    const user = useUserStore((state) => state.user);
-    const isReady = useUserStore((state) => state.isReady);
-    const wasLoggedOutRef = useRef(false);
-    const isProtectedPage = protectedPrefixes.some((prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`));
-
+export default function AppLayout({ children }: { children: ReactNode }) {
+    const available = useBackendStore((state) => state.available);
     useEffect(() => {
-        if (!isReady || !isProtectedPage || user) return;
-        router.replace(`/login?redirect=${encodeURIComponent(pathname)}`);
-    }, [isProtectedPage, isReady, pathname, router, user]);
-
-    useEffect(() => {
-        if (!isReady) return;
-        if (!user) {
-            wasLoggedOutRef.current = true;
-            return;
-        }
-        const syncCanvasAfterLogin = wasLoggedOutRef.current;
-        const token = useUserStore.getState().token;
-        if (!token) return;
-        wasLoggedOutRef.current = false;
-        fetchUserConfig(token).then(async (config) => {
-            const syncEnabled = config.syncCapabilities?.userData === true;
-            const { useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");
-            const canvasStore = useCanvasStore.getState();
-            canvasStore.setSyncEnabled(syncEnabled);
-            if (
-                syncCanvasAfterLogin &&
-                syncEnabled &&
-                canvasStore.hydrated
-            ) {
-                void canvasStore.syncWithRemote(token, true);
-            }
-            const { useAssetStore } = await import("@/stores/use-asset-store");
-            void useAssetStore.getState().hydrateAccountAssets(token, syncEnabled);
-        }).catch(() => { });
-    }, [isReady, user]);
-
-    return (
-        <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
-            <AppTopNav />
-            <div className="min-h-0 flex-1 overflow-hidden">{isProtectedPage && (!isReady || !user) ? null : children}</div>
-        </div>
-    );
+        if (!available) return;
+        let canceled = false;
+        void fetchWorkspaceConfig().then(async (config) => {
+            const syncEnabled = config.syncCapabilities?.workspaceData === true;
+            const [{ useCanvasStore }, { useAssetStore }] = await Promise.all([
+                import("@/app/(user)/canvas/stores/use-canvas-store"),
+                import("@/stores/use-asset-store"),
+            ]);
+            if (canceled) return;
+            useCanvasStore.getState().setSyncEnabled(syncEnabled);
+            void useAssetStore.getState().hydrateWorkspaceAssets(syncEnabled);
+        }).catch(() => {});
+        return () => { canceled = true; };
+    }, [available]);
+    return <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground"><AppTopNav /><div className="min-h-0 flex-1 overflow-hidden">{children}</div></div>;
 }

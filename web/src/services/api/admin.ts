@@ -13,91 +13,18 @@ export type AdminPromptCategory = {
     remote: boolean;
 };
 
-export type AdminUser = {
-    id: string;
-    username: string;
-    email: string;
-    displayName: string;
-    avatarUrl: string;
-    role: "user" | "admin";
-    credits: number;
-    affCode: string;
-    affCount: number;
-    inviterId: string;
-    linuxDoId: string;
-    status: "active" | "ban";
-    lastLoginAt: string;
-    createdAt: string;
-    updatedAt: string;
-};
+export type AdminListQuery = { keyword?: string; page?: number; pageSize?: number };
 
-export type AdminUserListResponse = {
-    items: AdminUser[];
-    total: number;
-};
-
-export type AdminCreditLog = {
-    id: string;
-    userId: string;
-    userDisplayName: string;
-    type: string;
-    amount: number;
-    balance: number;
-    relatedId: string;
-    remark: string;
-    extra: string;
-    createdAt: string;
-};
-
-export type AdminCreditLogListResponse = {
-    items: AdminCreditLog[];
-    total: number;
-};
-
-export type AdminUserQuery = {
-    keyword?: string;
-    page?: number;
-    pageSize?: number;
-};
-
-export async function fetchAdminUsers(token: string, query: AdminUserQuery = {}) {
-    return apiGet<AdminUserListResponse>("/api/admin/users", compactApiParams(query), token);
+export async function fetchAdminPromptCategories() {
+    return apiGet<AdminPromptCategory[]>("/api/settings/prompt-categories", undefined);
 }
 
-export async function saveAdminUser(token: string, user: Partial<AdminUser> & { password?: string }) {
-    return apiPost<AdminUser>("/api/admin/users", user, token);
+export async function syncAdminPromptCategory(category: string) {
+    return apiPost<AdminPromptCategory[]>("/api/settings/prompt-categories/sync", { category });
 }
 
-export async function adjustAdminUserCredits(token: string, id: string, credits: number) {
-    return apiPost<AdminUser>(`/api/admin/users/${encodeURIComponent(id)}/credits`, { credits }, token);
-}
-
-export async function deleteAdminUser(token: string, id: string) {
-    return apiDelete<boolean>(`/api/admin/users/${encodeURIComponent(id)}`, token);
-}
-
-export async function fetchAdminCreditLogs(token: string, query: AdminUserQuery & { date?: string } = {}) {
-    return apiGet<AdminCreditLogListResponse>("/api/admin/credit-logs", compactApiParams(query), token);
-}
-
-export async function saveAdminCreditLog(token: string, log: Partial<AdminCreditLog>) {
-    return apiPost<AdminCreditLog>("/api/admin/credit-logs", log, token);
-}
-
-export async function deleteAdminCreditLog(token: string, id: string) {
-    return apiDelete<boolean>(`/api/admin/credit-logs/${encodeURIComponent(id)}`, token);
-}
-
-export async function fetchAdminPromptCategories(token: string) {
-    return apiGet<AdminPromptCategory[]>("/api/admin/prompt-categories", undefined, token);
-}
-
-export async function syncAdminPromptCategory(token: string, category: string) {
-    return apiPost<AdminPromptCategory[]>("/api/admin/prompt-categories/sync", { category }, token);
-}
-
-export async function syncAdminPromptCategoriesAll(token: string) {
-    return apiPost<AdminPromptCategory[]>("/api/admin/prompt-categories/sync-all", {}, token);
+export async function syncAdminPromptCategoriesAll() {
+    return apiPost<AdminPromptCategory[]>("/api/settings/prompt-categories/sync-all", {});
 }
 
 export type AdminPromptQuery = {
@@ -128,36 +55,36 @@ export type AdminAssetListResponse = {
     total: number;
 };
 
-export async function fetchAdminPrompts(token: string, query: AdminPromptQuery = {}) {
-    return apiGet<PromptListResponse>("/api/admin/prompts", compactApiParams(query), token);
+export async function fetchAdminPrompts(query: AdminPromptQuery = {}) {
+    return apiGet<PromptListResponse>("/api/settings/prompts", compactApiParams(query));
 }
 
-export async function saveAdminPrompt(token: string, prompt: Partial<Prompt>) {
-    return apiPost<Prompt>("/api/admin/prompts", prompt, token);
+export async function saveAdminPrompt(prompt: Partial<Prompt>) {
+    return apiPost<Prompt>("/api/settings/prompts", prompt);
 }
 
-export async function deleteAdminPrompt(token: string, id: string) {
-    return apiDelete<boolean>(`/api/admin/prompts/${encodeURIComponent(id)}`, token);
+export async function deleteAdminPrompt(id: string) {
+    return apiDelete<boolean>(`/api/settings/prompts/${encodeURIComponent(id)}`);
 }
 
-export async function deleteAdminPrompts(token: string, ids: string[]) {
-    return apiPost<boolean>("/api/admin/prompts/batch-delete", { ids }, token);
+export async function deleteAdminPrompts(ids: string[]) {
+    return apiPost<boolean>("/api/settings/prompts/batch-delete", { ids });
 }
 
-export function fetchAdminAgentSkills(token: string) {
-    return apiGet<AgentSkill[]>("/api/admin/agent-skills", undefined, token);
+export function fetchAdminAgentSkills() {
+    return apiGet<AgentSkill[]>("/api/settings/agent-skills", undefined);
 }
 
-export function saveAdminAgentSkill(token: string, skill: Partial<AgentSkill>) {
-    return apiPost<AgentSkill>("/api/admin/agent-skills", skill, token);
+export function saveAdminAgentSkill(skill: Partial<AgentSkill>) {
+    return apiPost<AgentSkill>("/api/settings/agent-skills", skill);
 }
 
-export function fetchAdminAgentSkillFiles(token: string, id: string) {
-    return apiGet<AgentSkillFile[]>(`/api/admin/agent-skills/${encodeURIComponent(id)}/files`, undefined, token);
+export function fetchAdminAgentSkillFiles(id: string) {
+    return apiGet<AgentSkillFile[]>(`/api/settings/agent-skills/${encodeURIComponent(id)}/files`, undefined);
 }
 
-export function deleteAdminAgentSkill(token: string, id: string) {
-    return apiDelete<boolean>(`/api/admin/agent-skills/${encodeURIComponent(id)}`, token);
+export function deleteAdminAgentSkill(id: string) {
+    return apiDelete<boolean>(`/api/settings/agent-skills/${encodeURIComponent(id)}`);
 }
 
 export type AdminAssetQuery = {
@@ -168,16 +95,16 @@ export type AdminAssetQuery = {
     pageSize?: number;
 };
 
-export async function fetchAdminAssets(token: string, query: AdminAssetQuery = {}) {
-    return apiGet<AdminAssetListResponse>("/api/admin/assets", compactApiParams(query), token);
+export async function fetchAdminAssets(query: AdminAssetQuery = {}) {
+    return apiGet<AdminAssetListResponse>("/api/settings/assets", compactApiParams(query));
 }
 
-export async function saveAdminAsset(token: string, asset: Partial<AdminAsset>) {
-    return apiPost<AdminAsset>("/api/admin/assets", asset, token);
+export async function saveAdminAsset(asset: Partial<AdminAsset>) {
+    return apiPost<AdminAsset>("/api/settings/assets", asset);
 }
 
-export async function deleteAdminAsset(token: string, id: string) {
-    return apiDelete<boolean>(`/api/admin/assets/${encodeURIComponent(id)}`, token);
+export async function deleteAdminAsset(id: string) {
+    return apiDelete<boolean>(`/api/settings/assets/${encodeURIComponent(id)}`);
 }
 
 export type AdminModelChannel = {
@@ -191,7 +118,6 @@ export type AdminModelChannel = {
     timeout: number;
     enabled: boolean;
     remark: string;
-    uploadApiKey?: string;
     bridgeId?: string;
     comfyUrl?: string;
     workflowDir?: string;
@@ -201,7 +127,6 @@ export type AdminModelChannel = {
 export type AdminPublicModelChannelSettings = {
     availableModels: string[];
     availableWorkflows: string[];
-    modelCosts: AdminModelCost[];
     channels: AdminPublicModelChannelInfo[];
     defaultModel: string;
     defaultImageModel: string;
@@ -216,12 +141,6 @@ export type AdminPublicModelChannelSettings = {
         workflowAgent: string;
     };
     allowCustomChannel: boolean;
-    allowUserRemoteChannel: boolean;
-};
-
-export type AdminModelCost = {
-    model: string;
-    credits: number;
 };
 
 export type AdminPublicModelChannelInfo = {
@@ -239,15 +158,9 @@ export type AdminPublicModelChannelInfo = {
 
 export type AdminPublicSettings = {
     modelChannel: AdminPublicModelChannelSettings;
-    auth: {
-        allowRegister: boolean;
-        linuxDo: {
-            enabled: boolean;
-        };
-    };
     storage: {
         mode: string;
-        allowUserProvider: boolean;
+        allowCustomProvider: boolean;
     };
 };
 
@@ -266,7 +179,7 @@ export type AdminStorageProvider = {
     password: string;
     weight: number;
     enabled: boolean;
-    ownerUserId: string;
+    ownerWorkspaceId: string;
     capacityBytes: number;
     capacityCheckedAt: string;
     capacityExceeded: boolean;
@@ -286,16 +199,10 @@ export type AdminPrivateSettings = {
             cron: string;
         };
     };
-    auth: {
-        linuxDo: {
-            clientId: string;
-            clientSecret: string;
-        };
-    };
     storage: {
         mode: string;
-        allowUserProvider: boolean;
-        allowUserGlobalProvider: boolean;
+        allowCustomProvider: boolean;
+        useGlobalProvider: boolean;
         autoSyncAllAssets: boolean;
         providers: AdminStorageProvider[];
         roundRobinCursor: number;
@@ -309,8 +216,7 @@ export type AdminPrivateSettings = {
 
 export type AdminAICallLog = {
     id: string;
-    userId: string;
-    userDisplayName: string;
+    workspaceId: string;
     endpoint: string;
     method: string;
     model: string;
@@ -318,7 +224,6 @@ export type AdminAICallLog = {
     channelName: string;
     status: number;
     durationMs: number;
-    credits: number;
     requestBody: string;
     responseBody: string;
     error: string;
@@ -330,12 +235,12 @@ export type AdminAICallLogListResponse = {
     total: number;
 };
 
-export async function fetchAdminAICallLogs(token: string, query: AdminUserQuery = {}) {
-    return apiGet<AdminAICallLogListResponse>("/api/admin/ai-logs", compactApiParams(query), token);
+export async function fetchAdminAICallLogs(query: AdminListQuery = {}) {
+    return apiGet<AdminAICallLogListResponse>("/api/settings/ai-logs", compactApiParams(query));
 }
 
-export async function deleteAdminAICallLogs(token: string, olderThanDays = 7) {
-    return apiDelete<{ removedFiles: number }>(`/api/admin/ai-logs?olderThanDays=${encodeURIComponent(String(olderThanDays))}`, token);
+export async function deleteAdminAICallLogs(olderThanDays = 7) {
+    return apiDelete<{ removedFiles: number }>(`/api/settings/ai-logs?olderThanDays=${encodeURIComponent(String(olderThanDays))}`);
 }
 
 export type AdminSettings = {
@@ -343,12 +248,12 @@ export type AdminSettings = {
     private: AdminPrivateSettings;
 };
 
-export async function fetchAdminSettings(token: string) {
-    return apiGet<AdminSettings>("/api/admin/settings", undefined, token);
+export async function fetchAdminSettings() {
+    return apiGet<AdminSettings>("/api/settings/config", undefined);
 }
 
-export async function saveAdminSettings(token: string, settings: AdminSettings) {
-    return apiPost<AdminSettings>("/api/admin/settings", settings, token);
+export async function saveAdminSettings(settings: AdminSettings) {
+    return apiPost<AdminSettings>("/api/settings/config", settings);
 }
 
 export type AdminChannelActionRequest = {
@@ -357,12 +262,12 @@ export type AdminChannelActionRequest = {
     model?: string;
 };
 
-export async function fetchChannelModels(token: string, payload: AdminChannelActionRequest) {
-    return apiPost<string[]>("/api/admin/settings/channel-models", payload, token);
+export async function fetchChannelModels(payload: AdminChannelActionRequest) {
+    return apiPost<string[]>("/api/settings/config/channel-models", payload);
 }
 
-export async function testChannelModel(token: string, payload: AdminChannelActionRequest) {
-    return apiPost<string>("/api/admin/settings/channel-test", payload, token);
+export async function testChannelModel(payload: AdminChannelActionRequest) {
+    return apiPost<string>("/api/settings/config/channel-test", payload);
 }
 
 export type StorageCapacityResult = {
@@ -373,6 +278,6 @@ export type StorageCapacityResult = {
     providerName: string;
 };
 
-export async function measureAdminStorageProvider(token: string, payload: { index: number; provider: AdminStorageProvider }) {
-    return apiPost<StorageCapacityResult>("/api/admin/storage/measure", payload, token);
+export async function measureAdminStorageProvider(payload: { index: number; provider: AdminStorageProvider }) {
+    return apiPost<StorageCapacityResult>("/api/settings/storage/measure", payload);
 }

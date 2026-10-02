@@ -1,116 +1,51 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useLayoutEffect, useRef } from "react";
-import { usePathname } from "next/navigation";
+import { useEffect, useRef } from "react";
 import { App } from "antd";
-
-import { fetchUserConfig } from "@/services/api/user-config";
+import { fetchWorkspaceConfig } from "@/services/api/workspace-config";
 import { replaceWorkflowChannels } from "@/services/workflow-channel-storage";
-import { STORAGE_SYNC_FAILED_EVENT, defaultUserStorageProvider, defaultUserWebDAVStorageProvider, saveUserStorageProvider, saveUserWebDAVStorageProvider } from "@/services/image-storage";
-import { defaultConfig, useConfigStore, type AiConfig } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { STORAGE_SYNC_FAILED_EVENT, defaultCustomStorageProvider, defaultCustomWebDAVStorageProvider, saveCustomStorageProvider, saveCustomWebDAVStorageProvider } from "@/services/image-storage";
+import { useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const { message } = App.useApp();
     const handledConfigParams = useRef(false);
-    const pathname = usePathname();
-    const token = useUserStore((state) => state.token);
-    const user = useUserStore((state) => state.user);
-    const hydrateUser = useUserStore((state) => state.hydrateUser);
+    const available = useBackendStore((state) => state.available);
+    const initialize = useBackendStore((state) => state.initialize);
     const loadPublicSettings = useConfigStore((state) => state.loadPublicSettings);
     const publicSettings = useConfigStore((state) => state.publicSettings);
-    const channelMode = useConfigStore((state) => state.config.channelMode);
     const updateConfig = useConfigStore((state) => state.updateConfig);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const isLoginPage = pathname === "/login" || pathname === "/admin/login";
-    const adminRemoteTokenRef = useRef("");
-    const accountSessionRef = useRef({ token, userId: user?.id || "" });
-
+    useEffect(() => { void initialize(); void loadPublicSettings().catch(() => {}); }, [initialize, loadPublicSettings]);
     useEffect(() => {
-        const onSyncFailed = (event: Event) => {
-            const detail = (event as CustomEvent<string>).detail;
-            message.warning({ key: STORAGE_SYNC_FAILED_EVENT, content: `云端同步失败，已保留原始素材${detail ? `：${detail}` : ""}` });
-        };
+        const onSyncFailed = (event: Event) => { const detail = (event as CustomEvent<string>).detail; message.warning({ key: STORAGE_SYNC_FAILED_EVENT, content: "云端同步失败，已保留原始素材" + (detail ? "：" + detail : "") }); };
         window.addEventListener(STORAGE_SYNC_FAILED_EVENT, onSyncFailed);
         return () => window.removeEventListener(STORAGE_SYNC_FAILED_EVENT, onSyncFailed);
     }, [message]);
-
     useEffect(() => {
-        void loadPublicSettings().catch(() => {
-            // 后端不可用时保留本地配置，不让可选的启动请求成为未处理异常。
-        });
-    }, [loadPublicSettings]);
-
-    useEffect(() => {
-        if (!isLoginPage) void hydrateUser();
-    }, [hydrateUser, isLoginPage]);
-
-	useEffect(() => {
-		if (!token || user?.role !== "admin" || adminRemoteTokenRef.current === token) return;
-		adminRemoteTokenRef.current = token;
-		if (channelMode !== "remote") updateConfig("channelMode", "remote");
-	}, [channelMode, token, updateConfig, user?.role]);
-
-	useLayoutEffect(() => {
-		const previous = accountSessionRef.current;
-		const userId = user?.id || "";
-		if ((previous.token && !token) || (previous.userId && userId && previous.userId !== userId)) {
-			useConfigStore.setState({ config: defaultConfig });
-		} else {
-			updateConfig("workflowSyncTouched", false);
-		}
-		accountSessionRef.current = { token, userId };
-	}, [token, updateConfig, user?.id]);
-
-	useEffect(() => {
-        if (!token || !user?.id) return;
-        const accountToken = token;
-        const accountId = user.id;
+        if (!available) { updateConfig("workflowSyncTouched", true); return; }
         let canceled = false;
-		void fetchUserConfig(accountToken)
-			.then(async (payload) => {
-				if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
-				let workflowsReady = true;
-				const syncS3 = payload.modelConfig?.syncStorageConfig === true;
-                const syncWebDAV = payload.modelConfig?.syncWebDAVStorageConfig === true;
-                if (payload.modelConfig) {
-                    const { workflowChannels, ...modelConfig } = payload.modelConfig;
-					if (workflowChannels !== undefined) {
-						try {
-							await replaceWorkflowChannels(accountId, workflowChannels);
-						} catch {
-							workflowsReady = false;
-						}
-					}
-                    if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
-					Object.entries(modelConfig)
-						.forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
-				}
-				updateConfig("workflowSyncTouched", workflowsReady);
-				updateConfig("syncStorageConfig", syncS3);
-                updateConfig("syncWebDAVStorageConfig", syncWebDAV);
-                if (syncS3 && payload.storageProvider?.s3) {
-                    saveUserStorageProvider({
-                        ...defaultUserStorageProvider(),
-                        ...payload.storageProvider.s3,
-                        type: "s3",
-                    });
-                }
-                if (syncWebDAV && payload.storageProvider?.webdav) {
-                    saveUserWebDAVStorageProvider({
-                        ...defaultUserWebDAVStorageProvider(),
-                        ...payload.storageProvider.webdav,
-                        type: "webdav",
-                    });
-                }
-            })
-            .catch(() => {});
-        return () => {
-            canceled = true;
-        };
-    }, [token, updateConfig, user?.id]);
-
+        void fetchWorkspaceConfig().then(async (payload) => {
+            if (canceled) return;
+            if (payload.modelConfig) {
+                const { workflowChannels, ...config } = payload.modelConfig;
+                if (workflowChannels !== undefined) await replaceWorkflowChannels(workflowChannels);
+                if (canceled) return;
+                delete config.workflowSyncTouched;
+                Object.entries(config).forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
+            }
+            const syncS3 = payload.modelConfig?.syncStorageConfig === true;
+            const syncWebDAV = payload.modelConfig?.syncWebDAVStorageConfig === true;
+            updateConfig("workflowSyncTouched", true);
+            updateConfig("syncStorageConfig", syncS3);
+            updateConfig("syncWebDAVStorageConfig", syncWebDAV);
+            if (syncS3 && payload.storageProvider?.s3) saveCustomStorageProvider({ ...defaultCustomStorageProvider(), ...payload.storageProvider.s3, type: "s3" });
+            if (syncWebDAV && payload.storageProvider?.webdav) saveCustomWebDAVStorageProvider({ ...defaultCustomWebDAVStorageProvider(), ...payload.storageProvider.webdav, type: "webdav" });
+        }).catch(() => { if (!canceled) updateConfig("workflowSyncTouched", true); });
+        return () => { canceled = true; };
+    }, [available, updateConfig]);
     useEffect(() => {
         if (handledConfigParams.current) return;
         const searchParams = new URLSearchParams(window.location.search);
@@ -126,7 +61,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         window.history.replaceState(null, "", `${window.location.pathname}${searchParams.size ? `?${searchParams}` : ""}${window.location.hash}`);
         if (!publicSettings.modelChannel.allowCustomChannel) {
             openConfigDialog(false);
-            message.error("后台未允许用户自定义渠道，请联系管理员进行配置");
+            message.error("设置中尚未启用自定义渠道");
             return;
         }
         updateConfig("channelMode", "local");
@@ -134,6 +69,7 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
         if (apiKey) updateConfig("apiKey", apiKey);
         openConfigDialog(false);
     }, [message, openConfigDialog, publicSettings, updateConfig]);
+
 
     return <>{children}</>;
 }

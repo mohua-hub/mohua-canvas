@@ -9,20 +9,16 @@ import (
 )
 
 type CanvasImageTaskCreateInput struct {
-	UserID          string
-	UserDisplayName string
+	WorkspaceID          string
 	Source          string
 	SourceID        string
 	NodeID          string
 	ClientTaskID    string
 	Model           string
 	ChannelID       string
-	UserChannelID   string
+	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
-	Credits         float64
-	BillingName     string
-	BillingPath     string
 	Prompt          string
 	GenerationType  string
 	Endpoint        string
@@ -34,17 +30,15 @@ func CreateCanvasImageTask(input CanvasImageTaskCreateInput) (model.CanvasImageT
 	current := now()
 	task := model.CanvasImageTask{
 		ID:              firstVideoTaskValue(input.ClientTaskID, "canvas_image_task_"+uuid.NewString()),
-		UserID:          strings.TrimSpace(input.UserID),
-		UserDisplayName: strings.TrimSpace(input.UserDisplayName),
+		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
 		Source:          normalizeCanvasImageTaskSource(input.Source),
 		SourceID:        strings.TrimSpace(input.SourceID),
 		NodeID:          strings.TrimSpace(input.NodeID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		UserChannelID:   strings.TrimSpace(input.UserChannelID),
+		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
-		Credits:         input.Credits,
 		Status:          "queued",
 		Progress:        0,
 		Prompt:          strings.TrimSpace(input.Prompt),
@@ -55,25 +49,19 @@ func CreateCanvasImageTask(input CanvasImageTaskCreateInput) (model.CanvasImageT
 		CreatedAt:       current,
 		UpdatedAt:       current,
 	}
-	saved := task
-	var err error
-	if input.WorkflowRef != "" {
-		err = ConsumeUserCredits(task.UserID, input.BillingName, task.Credits, input.BillingPath, &task)
-	} else {
-		saved, err = repository.SaveCanvasImageTask(task)
-	}
+	saved, err := repository.SaveCanvasImageTask(task)
 	if err == nil {
 		WakeVideoTaskPoller()
 	}
 	return saved, err
 }
 
-func GetUserCanvasImageTask(userID string, id string) (model.CanvasImageTask, bool, error) {
-	return repository.GetUserCanvasImageTask(strings.TrimSpace(userID), strings.TrimSpace(id))
+func GetWorkspaceCanvasImageTask(workspaceID string, id string) (model.CanvasImageTask, bool, error) {
+	return repository.GetWorkspaceCanvasImageTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
-func ListUserCanvasImageTasks(userID string, sources []string, limit int) ([]map[string]any, error) {
-	tasks, err := repository.ListUserCanvasImageTasks(strings.TrimSpace(userID), normalizeCanvasImageTaskSources(sources), limit)
+func ListWorkspaceCanvasImageTasks(workspaceID string, sources []string, limit int) ([]map[string]any, error) {
+	tasks, err := repository.ListWorkspaceCanvasImageTasks(strings.TrimSpace(workspaceID), normalizeCanvasImageTaskSources(sources), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -84,8 +72,8 @@ func ListUserCanvasImageTasks(userID string, sources []string, limit int) ([]map
 	return result, nil
 }
 
-func BatchUserCanvasImageTasks(userID string, ids []string) ([]map[string]any, error) {
-	tasks, err := repository.BatchUserCanvasImageTasks(strings.TrimSpace(userID), ids)
+func BatchWorkspaceCanvasImageTasks(workspaceID string, ids []string) ([]map[string]any, error) {
+	tasks, err := repository.BatchWorkspaceCanvasImageTasks(strings.TrimSpace(workspaceID), ids)
 	if err != nil {
 		return nil, err
 	}
@@ -96,12 +84,12 @@ func BatchUserCanvasImageTasks(userID string, ids []string) ([]map[string]any, e
 	return result, nil
 }
 
-func DeleteUserCanvasImageTask(userID string, id string) error {
-	return repository.DeleteUserCanvasImageTask(strings.TrimSpace(userID), strings.TrimSpace(id))
+func DeleteWorkspaceCanvasImageTask(workspaceID string, id string) error {
+	return repository.DeleteWorkspaceCanvasImageTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
-func DeleteUserCanvasTasks(userID string, sourceID string, nodeIDs []string) error {
-	return repository.DeleteUserCanvasTasks(strings.TrimSpace(userID), strings.TrimSpace(sourceID), nodeIDs)
+func DeleteWorkspaceCanvasTasks(workspaceID string, sourceID string, nodeIDs []string) error {
+	return repository.DeleteWorkspaceCanvasTasks(strings.TrimSpace(workspaceID), strings.TrimSpace(sourceID), nodeIDs)
 }
 
 func SaveCanvasImageTask(task model.CanvasImageTask) (model.CanvasImageTask, error) {

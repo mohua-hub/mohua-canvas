@@ -25,7 +25,6 @@ type ModelChannel struct {
 	Timeout      int             `json:"timeout"`
 	Enabled      bool            `json:"enabled"`
 	Remark       string          `json:"remark"`
-	UploadAPIKey string          `json:"uploadApiKey,omitempty"`
 	BridgeID     string          `json:"bridgeId,omitempty"`
 	ComfyURL     string          `json:"comfyUrl,omitempty"`
 	WorkflowDir  string          `json:"workflowDir,omitempty"`
@@ -82,17 +81,10 @@ type WorkflowSummary struct {
 	Enabled    bool    `json:"enabled"`
 }
 
-// ModelCost 模型算力点配置。
-type ModelCost struct {
-	Model   string  `json:"model"`
-	Credits float64 `json:"credits"`
-}
-
 // PublicModelChannelSetting 公开模型渠道配置。
 type PublicModelChannelSetting struct {
 	AvailableModels        []string                 `json:"availableModels"`
 	AvailableWorkflows     []string                 `json:"availableWorkflows"`
-	ModelCosts             []ModelCost              `json:"modelCosts"`
 	Channels               []PublicModelChannelInfo `json:"channels"`
 	DefaultModel           string                   `json:"defaultModel"`
 	DefaultImageModel      string                   `json:"defaultImageModel"`
@@ -101,7 +93,6 @@ type PublicModelChannelSetting struct {
 	SystemPrompt           string                   `json:"systemPrompt"`
 	SystemPrompts          SystemPromptSetting      `json:"systemPrompts"`
 	AllowCustomChannel     *bool                    `json:"allowCustomChannel"`
-	AllowUserRemoteChannel *bool                    `json:"allowUserRemoteChannel"`
 }
 
 type SystemPromptSetting struct {
@@ -128,14 +119,13 @@ type PublicModelChannelInfo struct {
 // PublicSetting 公开配置。
 type PublicSetting struct {
 	ModelChannel PublicModelChannelSetting `json:"modelChannel"`
-	Auth         PublicAuthSetting         `json:"auth"`
 	Storage      PublicStorageSetting      `json:"storage"`
 }
 
 type PublicStorageSetting struct {
 	Mode                    string `json:"mode"`
-	AllowUserProvider       bool   `json:"allowUserProvider"`
-	AllowUserGlobalProvider bool   `json:"allowUserGlobalProvider"`
+	AllowCustomProvider       bool   `json:"allowCustomProvider"`
+	UseGlobalProvider bool   `json:"useGlobalProvider"`
 }
 
 type PublicStorageConfig struct {
@@ -143,21 +133,11 @@ type PublicStorageConfig struct {
 	AutoSyncAllAssets bool `json:"autoSyncAllAssets"`
 }
 
-type PublicAuthSetting struct {
-	AllowRegister *bool                    `json:"allowRegister"`
-	LinuxDo       PublicLinuxDoAuthSetting `json:"linuxDo"`
-}
-
-type PublicLinuxDoAuthSetting struct {
-	Enabled bool `json:"enabled"`
-}
-
 // PrivateSetting 私有配置。
 type PrivateSetting struct {
 	Channels   []ModelChannel        `json:"channels"`
 	PromptSync PromptSyncSetting     `json:"promptSync"`
 	AILog      AILogSetting          `json:"aiLog"`
-	Auth       PrivateAuthSetting    `json:"auth"`
 	Storage    PrivateStorageSetting `json:"storage"`
 }
 
@@ -174,8 +154,8 @@ type AILogCleanupSetting struct {
 
 type PrivateStorageSetting struct {
 	Mode                    string                      `json:"mode"`
-	AllowUserProvider       bool                        `json:"allowUserProvider"`
-	AllowUserGlobalProvider bool                        `json:"allowUserGlobalProvider"`
+	AllowCustomProvider       bool                        `json:"allowCustomProvider"`
+	UseGlobalProvider bool                        `json:"useGlobalProvider"`
 	AutoSyncAllAssets       bool                        `json:"autoSyncAllAssets"`
 	Providers               []StorageProvider           `json:"providers"`
 	RoundRobinCursor        int                         `json:"roundRobinCursor"`
@@ -198,7 +178,7 @@ type StorageProvider struct {
 	Password          string `json:"password"`
 	Weight            int    `json:"weight"`
 	Enabled           bool   `json:"enabled"`
-	OwnerUserID       string `json:"ownerUserId"`
+	OwnerWorkspaceID       string `json:"ownerWorkspaceId"`
 	CapacityBytes     int64  `json:"capacityBytes"`
 	CapacityCheckedAt string `json:"capacityCheckedAt"`
 	CapacityExceeded  bool   `json:"capacityExceeded"`
@@ -213,15 +193,6 @@ type StorageCapacityCheckSetting struct {
 type PromptSyncSetting struct {
 	Enabled *bool  `json:"enabled"`
 	Cron    string `json:"cron"`
-}
-
-type PrivateAuthSetting struct {
-	LinuxDo PrivateLinuxDoAuthSetting `json:"linuxDo"`
-}
-
-type PrivateLinuxDoAuthSetting struct {
-	ClientID     string `json:"clientId"`
-	ClientSecret string `json:"clientSecret"`
 }
 
 // Setting 系统配置。

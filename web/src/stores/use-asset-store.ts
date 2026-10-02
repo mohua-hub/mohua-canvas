@@ -7,8 +7,8 @@ import { nanoid } from "nanoid";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { cleanupUnusedImages, resolveImageUrl, uploadImage } from "@/services/image-storage";
 import { cleanupUnusedMedia, resolveMediaUrl } from "@/services/file-storage";
-import { fetchUserAssetData, syncUserAssetData } from "@/services/api/user-config";
-import { useUserStore } from "@/stores/use-user-store";
+import { fetchWorkspaceConfig, syncWorkspaceAssetData } from "@/services/api/workspace-config";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 export type AssetKind = "text" | "image" | "video" | "audio";
 export type TextAsset = AssetBase<"text"> & { data: { content: string } };
@@ -35,16 +35,16 @@ type AssetStore = {
     addAsset: (asset: Omit<Asset, "id" | "createdAt" | "updatedAt">) => string;
     updateAsset: (id: string, patch: Partial<Omit<Asset, "id" | "createdAt">>) => void;
     removeAsset: (id: string) => void;
-    hydrateAccountAssets: (token: string, syncEnabled?: boolean) => Promise<void>;
-    syncAccountAssets: (token: string) => Promise<void>;
-    stopAccountAssetSync: () => void;
-    cleanupImages: (extra?: unknown, storageKeys?: ReadonlyMap<string, string>, ownerToken?: string) => void;
+    hydrateWorkspaceAssets: (syncEnabled?: boolean) => Promise<void>;
+    syncWorkspaceAssets: () => Promise<void>;
+    stopWorkspaceAssetSync: () => void;
+    cleanupImages: (extra?: unknown, storageKeys?: ReadonlyMap<string, string>) => void;
 };
 
 const ASSET_STORE_KEY = "infinite-canvas:asset_store";
-let activeAssetSyncToken = "";
-let accountAssetSyncEnabled = false;
-let isHydratingAccountAssets = false;
+let workspaceAssetSyncActive = false;
+let workspaceAssetSyncEnabled = false;
+let isHydratingWorkspaceAssets = false;
 let syncTimer: number | null = null;
 
 type AssetSnapshot = { assets: Asset[] };
@@ -172,20 +172,26 @@ export const useAssetStore = create<AssetStore>()(
                     window.setTimeout(() => scheduleAssetSync(get), 0);
                     return { assets };
                 }),
-            hydrateAccountAssets: async (token, syncEnabled = false) => {
-                if (!token) return;
-                activeAssetSyncToken = token;
-                accountAssetSyncEnabled = syncEnabled;
-                isHydratingAccountAssets = true;
+            hydrateWorkspaceAssets: async (syncEnabled = false) => {
+                const backendConnected = useBackendStore.getState().available;
+                if (!backendConnected) return;
+                if (!useAssetStore.persist.hasHydrated()) {
+                    await new Promise<void>((resolve) => {
+                        const unsubscribe = useAssetStore.persist.onFinishHydration(() => { unsubscribe(); resolve(); });
+                    });
+                }
+                workspaceAssetSyncActive = backendConnected;
+                workspaceAssetSyncEnabled = syncEnabled;
+                isHydratingWorkspaceAssets = true;
                 try {
-                    const remote = await fetchUserAssetData<AssetSnapshot>(token);
+                    const remote = (await fetchWorkspaceConfig()).assetData as AssetSnapshot | undefined;
                     const remoteAssets = await Promise.all(
                         (Array.isArray(remote?.assets) ? remote.assets : []).map((asset) =>
                             asset.kind === "image" && asset.data.storageKey?.startsWith("image:") ? resolveStoredAsset(asset) : asset,
                         ),
                     );
                     if (syncEnabled) {
-                        set({ assets: remoteAssets });
+                        if (Array.isArray(remote?.assets)) set({ assets: remoteAssets });
                     } else {
                         const localHasAssets = get().assets.length > 0;
                         if (!localHasAssets && remoteAssets.length) {
@@ -193,19 +199,21 @@ export const useAssetStore = create<AssetStore>()(
                         }
                     }
                 } finally {
-                    isHydratingAccountAssets = false;
+                    isHydratingWorkspaceAssets = false;
+                    scheduleAssetSync(get);
                 }
             },
-            syncAccountAssets: async (token) => {
-                if (!token || !accountAssetSyncEnabled) return;
-                await syncUserAssetData(token, { assets: get().assets });
+            syncWorkspaceAssets: async () => {
+                const backendConnected = useBackendStore.getState().available;
+                if (!backendConnected || !workspaceAssetSyncEnabled) return;
+                await syncWorkspaceAssetData({ assets: get().assets });
             },
-            stopAccountAssetSync: () => {
-                activeAssetSyncToken = "";
+            stopWorkspaceAssetSync: () => {
+                workspaceAssetSyncActive = false;
                 if (syncTimer) window.clearTimeout(syncTimer);
                 syncTimer = null;
             },
-            cleanupImages: (extra, storageKeys, ownerToken) => {
+            cleanupImages: (extra, storageKeys) => {
                 window.setTimeout(async () => {
                     const { useCanvasStore } = await import("@/app/(user)/canvas/stores/use-canvas-store");
                     const { loadLocalAgentSkills, useAgentSkillStore } = await import("@/stores/use-agent-skill-store");
@@ -247,8 +255,8 @@ export const useAssetStore = create<AssetStore>()(
                     try {
                         await useAgentSkillStore.getState().loadSkills();
                         const skillStore = useAgentSkillStore.getState();
-                        const localSkills = useUserStore.getState().token ? await loadLocalAgentSkills() : [];
-                        await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, skills: [...skillStore.systemSkills, ...skillStore.userSkills, ...localSkills], extra, logKeys }, storageKeys, ownerToken);
+                        const localSkills = useBackendStore.getState().available ? await loadLocalAgentSkills() : [];
+                        await cleanupUnusedImages({ assets: get().assets, projects: useCanvasStore.getState().projects, skills: [...skillStore.systemSkills, ...skillStore.userSkills, ...localSkills], extra, logKeys }, storageKeys);
                     } catch (error) {
                         console.error("Error gathering Skill keys in cleanupImages", error);
                     }
@@ -265,10 +273,10 @@ export const useAssetStore = create<AssetStore>()(
 );
 
 function scheduleAssetSync(get: () => AssetStore) {
-    if (isHydratingAccountAssets || !activeAssetSyncToken || !accountAssetSyncEnabled || typeof window === "undefined") return;
+    if (isHydratingWorkspaceAssets || !workspaceAssetSyncActive || !workspaceAssetSyncEnabled || typeof window === "undefined") return;
     if (syncTimer) window.clearTimeout(syncTimer);
     syncTimer = window.setTimeout(() => {
-        void get().syncAccountAssets(activeAssetSyncToken).catch(() => {});
+        void get().syncWorkspaceAssets().catch(() => {});
     }, 600);
 }
 

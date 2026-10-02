@@ -13,7 +13,7 @@ export type AgentSkillFile = {
 
 export type AgentSkill = {
     id: string;
-    ownerUserId: string;
+    ownerWorkspaceId: string;
     source: "system" | "user";
     name: string;
     description: string;
@@ -36,14 +36,14 @@ export function fetchSystemAgentSkillFile(id: string, path: string) {
     return apiGet<AgentSkillFile>(`/api/agent-skills/${encodeURIComponent(id)}/file`, { path });
 }
 
-export function fetchUserAgentSkills(token: string) {
-    return apiGet<AgentSkill[]>("/api/v1/agent-skills", undefined, token);
+export function fetchWorkspaceAgentSkills() {
+    return apiGet<AgentSkill[]>("/api/v1/agent-skills", undefined);
 }
 
-export function saveUserAgentSkill(token: string, skill: Partial<AgentSkill>) {
-    return apiPost<AgentSkill>("/api/v1/agent-skills", skill, token);
+export function saveWorkspaceAgentSkill(skill: Partial<AgentSkill>) {
+    return apiPost<AgentSkill>("/api/v1/agent-skills", skill);
 }
 
-export function deleteUserAgentSkill(token: string, id: string) {
-    return apiDelete<boolean>(`/api/v1/agent-skills/${encodeURIComponent(id)}`, token);
+export function deleteWorkspaceAgentSkill(id: string) {
+    return apiDelete<boolean>(`/api/v1/agent-skills/${encodeURIComponent(id)}`);
 }

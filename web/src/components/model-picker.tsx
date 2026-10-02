@@ -1,15 +1,15 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { Cpu } from "lucide-react";
+import { Cpu, Workflow } from "lucide-react";
 
-import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger } from "@/components/ui/select";
 import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
 import { isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef } from "@/lib/workflow-channel";
 import { filterModelsByCapability, normalizeLocalChannels, useConfigStore, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 type ModelPickerProps = {
     config: AiConfig;
@@ -23,16 +23,17 @@ type ModelPickerProps = {
     fullWidth?: boolean;
     placeholder?: string;
     onMissingConfig?: () => void;
+    onOpenRunningHub?: () => void;
 };
 
 type PickerBase = { key: string; channelId?: string; channelName: string; protocol?: string; baseUrl?: string };
 type PickerOption = (PickerBase & { model: string }) | (PickerBase & { model: ""; workflowRef: WorkflowRef; label: string });
 
-export function ModelPicker({ config, value, channelId, capability, onChange, workflowRef, onWorkflowChange, className, fullWidth = false, placeholder = "选择模型", onMissingConfig }: ModelPickerProps) {
+export function ModelPicker({ config, value, channelId, capability, onChange, workflowRef, onWorkflowChange, className, fullWidth = false, placeholder = "选择模型", onMissingConfig, onOpenRunningHub }: ModelPickerProps) {
     const pickerId = useId();
     const [open, setOpen] = useState(false);
-    const token = useUserStore((state) => state.token);
-    const userReady = useUserStore((state) => state.isReady);
+    const backendConnected = useBackendStore((state) => state.available);
+    const backendReady = useBackendStore((state) => state.isReady);
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const workflowEnabled = Boolean(onWorkflowChange && capability && capability !== "text");
     const channelOptions = useMemo<PickerOption[]>(() => {
@@ -42,13 +43,13 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, workflows: channel.workflowSummaries || [] }));
         const models = channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => (channel.models ?? []).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
         const filtered = capability ? models.filter((item) => filterModelsByCapability([item.model], capability, item.protocol || "").length > 0) : models;
-        if (!workflowEnabled || !token) return filtered;
+        if (!workflowEnabled || !backendConnected) return filtered;
         const scope = config.channelMode === "remote" ? "system" : "personal";
-        return [...filtered, ...channels.flatMap((channel) => isWorkflowProtocol(channel.protocol || "") ? channel.workflows.filter((entry) => entry.enabled && entry.capability === capability && entry.provider === channel.protocol).map((entry) => {
+        return [...filtered, ...channels.flatMap((channel) => channel.protocol === "comfyui" ? channel.workflows.filter((entry) => entry.enabled && entry.capability === capability && entry.provider === channel.protocol).map((entry) => {
             const ref: WorkflowRef = { scope, channelId: channel.id || "", kind: entry.kind, workflowId: entry.workflowId };
             return { key: `workflow:${JSON.stringify([ref.scope, ref.channelId, ref.kind, ref.workflowId])}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model: "", workflowRef: ref, label: entry.title || entry.workflowId };
         }) : [])];
-    }, [capability, config, token, workflowEnabled]);
+    }, [capability, config, backendConnected, workflowEnabled]);
     const modelLabel = useAutoDLWorkflowNames(channelOptions);
     const currentOption = useMemo(() => {
         if (workflowRef && workflowEnabled) return channelOptions.find((item) => "workflowRef" in item && item.key === `workflow:${JSON.stringify([workflowRef.scope, workflowRef.channelId, workflowRef.kind, workflowRef.workflowId])}`);
@@ -56,7 +57,8 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
         return channelOptions.find((item) => item.model === value && item.channelId === channelId) || channelOptions.find((item) => item.model === value);
     }, [channelId, channelOptions, value, workflowEnabled, workflowRef]);
     const options = channelOptions;
-    const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : (currentOption || config.channelMode !== "remote" ? value || "" : "");
+    const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : (currentOption || (config.channelMode !== "remote" && !onOpenRunningHub) ? value || "" : "");
+    const emptyLabel = onOpenRunningHub ? "选择模型 / RunningHub" : placeholder;
     const currentValue = current && currentOption ? currentOption.key : "";
 
 	useEffect(() => {
@@ -64,13 +66,13 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
 			const workflowOptionsReady = workflowRef.scope === "system"
 				? publicSettings !== null
 				: config.workflowSyncTouched === true;
-			if (token && userReady && workflowOptionsReady && !currentOption && channelOptions.some((item) => !("workflowRef" in item))) {
+			if (backendConnected && backendReady && workflowOptionsReady && !currentOption && channelOptions.some((item) => !("workflowRef" in item))) {
 				onWorkflowChange?.(undefined);
             }
             return;
         }
         if (value && currentOption?.channelId && !("workflowRef" in currentOption) && channelId !== currentOption.channelId) onChange(value, currentOption.channelId);
-	}, [channelId, channelOptions, config.workflowSyncTouched, currentOption, onChange, onWorkflowChange, publicSettings, token, userReady, value, workflowEnabled, workflowRef]);
+	}, [channelId, channelOptions, config.workflowSyncTouched, currentOption, onChange, onWorkflowChange, publicSettings, backendConnected, backendReady, value, workflowEnabled, workflowRef]);
 
     useEffect(() => {
         const closeOtherPicker = (event: Event) => {
@@ -85,7 +87,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             open={open}
             value={current ? currentValue : ""}
             onOpenChange={(nextOpen) => {
-                if (nextOpen && !options.length && config.channelMode === "local") {
+                if (nextOpen && !options.length && config.channelMode === "local" && !onOpenRunningHub) {
                     onMissingConfig?.();
                     return;
                 }
@@ -93,6 +95,12 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 setOpen(nextOpen);
             }}
             onValueChange={(nextValue) => {
+                if (nextValue === "__runninghub__" || nextValue === "__configure__") {
+                    setOpen(false);
+                    if (nextValue === "__runninghub__") onOpenRunningHub?.();
+                    else onMissingConfig?.();
+                    return;
+                }
                 const option = options.find((item) => item.key === nextValue);
                 if (!option) return;
                 if ("workflowRef" in option) onWorkflowChange?.(option.workflowRef);
@@ -108,10 +116,10 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 )}
                 onMouseDown={(event) => event.stopPropagation()}
                 onPointerDown={(event) => event.stopPropagation()}
-                title={workflowRef && workflowEnabled && !currentOption ? "工作流已停用、未公开或删除，请重新选择" : current || placeholder}
+                title={workflowRef && workflowEnabled && !currentOption ? "工作流已停用、未公开或删除，请重新选择" : current || emptyLabel}
             >
                 <ModelIcon model={current} />
-                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{workflowRef && workflowEnabled ? current || "工作流已停用、未公开或删除，请重新选择" : modelLabel(current, currentOption) || placeholder}</span>
+                <span className="canvas-model-picker-text min-w-0 flex-1 truncate text-left">{workflowRef && workflowEnabled ? current || "工作流已停用、未公开或删除，请重新选择" : modelLabel(current, currentOption) || emptyLabel}</span>
             </SelectTrigger>
             <SelectContent
                 data-canvas-no-zoom
@@ -123,6 +131,12 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                 onPointerDown={(event) => event.stopPropagation()}
                 onMouseDown={(event) => event.stopPropagation()}
             >
+                {onOpenRunningHub ? <>
+                    <SelectItem value="__runninghub__" textValue="RunningHub 集合">
+                        <span className="flex items-center gap-2"><Workflow className="size-4 shrink-0" /><span>RunningHub 集合</span><span className="ml-auto text-xs opacity-50">插入参数节点</span></span>
+                    </SelectItem>
+                    <SelectSeparator />
+                </> : null}
                 {options.length ? (
                     options.map((option) => (
                         <SelectItem key={option.key} value={option.key} textValue={`${"workflowRef" in option ? option.label : modelLabel(option.model, option)} ${option.model} ${option.channelName}`}>
@@ -131,9 +145,10 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                     ))
                 ) : (
                     <SelectItem value="__empty__" disabled>
-                        {config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
+                        {onOpenRunningHub ? "暂无普通模型" : config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
                     </SelectItem>
                 )}
+                {onOpenRunningHub && !options.length && onMissingConfig ? <SelectItem value="__configure__">配置普通模型渠道</SelectItem> : null}
             </SelectContent>
         </Select>
     );

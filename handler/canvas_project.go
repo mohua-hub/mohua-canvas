@@ -7,8 +7,8 @@ import (
 	"github.com/tigerowo/infinite-canvas/service"
 )
 
-func UserCanvasProjects(w http.ResponseWriter, r *http.Request) {
-	projects, err := service.CurrentUserCanvasProjects(r.Context())
+func WorkspaceCanvasProjects(w http.ResponseWriter, r *http.Request) {
+	projects, err := service.CurrentWorkspaceCanvasProjects(r.Context())
 	if err != nil {
 		FailError(w, err)
 		return
@@ -16,7 +16,7 @@ func UserCanvasProjects(w http.ResponseWriter, r *http.Request) {
 	OK(w, projects)
 }
 
-func SaveUserCanvasProject(w http.ResponseWriter, r *http.Request) {
+func SaveWorkspaceCanvasProject(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Data json.RawMessage `json:"data"`
 	}
@@ -26,7 +26,7 @@ func SaveUserCanvasProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	project, err := service.SaveCurrentUserCanvasProject(
+	project, err := service.SaveCurrentWorkspaceCanvasProject(
 		r.Context(),
 		request.Data,
 	)
@@ -37,7 +37,7 @@ func SaveUserCanvasProject(w http.ResponseWriter, r *http.Request) {
 	OK(w, project)
 }
 
-func SyncUserCanvasProjects(w http.ResponseWriter, r *http.Request) {
+func SyncWorkspaceCanvasProjects(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Projects []json.RawMessage `json:"projects"`
 	}
@@ -46,7 +46,7 @@ func SyncUserCanvasProjects(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projects, err := service.SyncCurrentUserCanvasProjects(
+	projects, err := service.SyncCurrentWorkspaceCanvasProjects(
 		r.Context(),
 		request.Projects,
 	)

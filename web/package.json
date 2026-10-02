@@ -1,13 +1,13 @@
 {
     "name": "infinite-canvas",
-    "version": "0.1.6",
+    "version": "0.1.7",
     "private": true,
     "type": "module",
     "scripts": {
-        "dev": "next dev --webpack -H 0.0.0.0 -p 3000",
+        "dev": "next dev --webpack -H 127.0.0.1 -p 3000",
         "build": "bun run build:bridge && next build",
         "build:bridge": "bun ../canvas-agent/scripts/build-comfy-bridge.ts",
-        "start": "next start",
+        "start": "next start -H 127.0.0.1",
         "tauri": "node ../scripts/desktop.mjs",
         "tauri:dev": "node ../scripts/desktop.mjs dev",
         "tauri:build": "node ../scripts/desktop.mjs build",

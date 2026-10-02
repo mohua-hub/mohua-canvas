@@ -13,16 +13,19 @@ import { createCanvasAudioTask, pollCanvasAudioTaskStatus, type CanvasAudioTask 
 import { createVideoGenerationTask, pollVideoGenerationTaskStatus, VIDEO_POLL_INTERVAL_MS, type VideoResponse } from "@/services/api/video";
 import { comfyOutputStorageKey, getWorkflowTask, submitWorkflowTask, workflowMediaSource, type WorkflowGenerationTask } from "@/services/api/workflow-generation";
 import type { WorkflowRef } from "@/lib/workflow-channel";
+import { getRunningHubTask, submitRunningHubTask } from "@/services/api/runninghub";
+import { canvasDefaultWorkflowRef, runningHubCanvasInputs, runningHubInitialValues } from "../utils/runninghub-fields";
+import { CanvasRunningHubNodePanel } from "../components/canvas-runninghub-node-panel";
 import { channelProtocolForConfig, defaultConfig, resolveModelForCapability, type AiConfig, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { collectImageStorageKeys, deleteStoredImages, resolveImageUrl, uploadImage, uploadRemoteImageToServer, type UploadedImage } from "@/services/image-storage";
 import { downloadRemoteMedia, resolveMediaUrl, uploadMediaFile, uploadRemoteMediaToServer, type UploadedFile } from "@/services/file-storage";
 import { nanoid } from "nanoid";
 import { getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { canvasThemes, type CanvasBackgroundMode } from "@/lib/canvas-theme";
-import { UserStatusActions } from "@/components/layout/user-status-actions";
+import { AppActions } from "@/components/layout/app-actions";
 import { isKIEKlingV3Config, kieKlingOmniVariant } from "@/components/video-settings-panel";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import { useThemeStore } from "@/stores/use-theme-store";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "../utils/canvas-image-data";
 import { fitNodeSize, nodeSizeFromRatio } from "../utils/canvas-node-size";
@@ -92,6 +95,7 @@ import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 
 const CanvasPanoramaViewer = dynamic(() => import("../components/canvas-panorama-viewer"), { ssr: false, loading: () => null });
+const CanvasRunningHubCollection = dynamic(() => import("../components/canvas-runninghub-collection"), { ssr: false });
 
 type CanvasClipboard = {
     nodes: CanvasNodeData[];
@@ -391,6 +395,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const [toolbarNodeId, setToolbarNodeId] = useState<string | null>(null);
     const [nodeImageSettingsOpen, setNodeImageSettingsOpen] = useState(false);
     const [dialogNodeId, setDialogNodeId] = useState<string | null>(null);
+    const [runningHubCollection, setRunningHubCollection] = useState<{ nodeId?: string } | null>(null);
     const [openDirectorNodeId, setOpenDirectorNodeId] = useState<string | null>(null);
     const [infoNodeId, setInfoNodeId] = useState<string | null>(null);
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
@@ -510,7 +515,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             historyCleanupTimerRef.current = null;
         }
         const usedKeys = collectImageStorageKeys(nodesRef.current, new Set(), storageKeys);
-        if (Array.from(storageKeys.values()).some((key) => !usedKeys.has(key))) cleanupAssetImages({ nodes: nodesRef.current }, storageKeys, useUserStore.getState().token);
+        if (Array.from(storageKeys.values()).some((key) => !usedKeys.has(key))) cleanupAssetImages({ nodes: nodesRef.current }, storageKeys);
     }, [cleanupAssetImages, projectId]);
 
     useEffect(() => {
@@ -619,12 +624,11 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             videoTargets.forEach((node) => {
                 if (pollingVideoNodeIdsRef.current.has(node.id)) return;
                 const taskId = canvasVideoTaskId(node.metadata);
-                const workflowToken = node.metadata?.workflowRef ? useUserStore.getState().token : "";
                 const generationConfig = buildGenerationConfig(effectiveConfig, node, "video");
                 if (!taskId || (!node.metadata?.workflowRef && !isAiConfigReady(generationConfig, generationConfig.model))) return;
                 pollingVideoNodeIdsRef.current.add(node.id);
                 void (node.metadata?.workflowRef
-                    ? getWorkflowTask(workflowToken, taskId).then((task) => workflowVideoTask(task, workflowToken))
+                    ? (node.metadata?.runningHubEntry ? getRunningHubTask(taskId) : getWorkflowTask(taskId)).then((task) => workflowVideoTask(task))
                     : pollVideoGenerationTaskStatus(generationConfig, canvasVideoTaskFromMetadata(node.metadata)))
                     .then((task) => {
                         setNodes((prev) => applyCanvasVideoTaskUpdate(prev, node.id, task, generationConfig, node.metadata?.startedAt || Date.now(), { width: node.width, height: node.height }));
@@ -637,10 +641,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const imageTargets = nodesRef.current.filter((node) => isCanvasImageNodeType(node.type) && node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && node.metadata.imageTaskId);
             imageTargets.forEach((node) => {
                 if (pollingImageNodeIdsRef.current.has(node.id) || !node.metadata?.imageTaskId) return;
-                const workflowToken = node.metadata.workflowRef ? useUserStore.getState().token : "";
                 pollingImageNodeIdsRef.current.add(node.id);
                 void (node.metadata.workflowRef
-                    ? getWorkflowTask(workflowToken, node.metadata.imageTaskId).then((task) => workflowImageTask(task, workflowToken))
+                    ? (node.metadata.runningHubEntry ? getRunningHubTask(node.metadata.imageTaskId) : getWorkflowTask(node.metadata.imageTaskId)).then((task) => workflowImageTask(task))
                     : pollCanvasImageTaskStatus(node.metadata.imageTaskId))
                     .then((task) => {
                         setNodes((prev) => applyCanvasImageTaskUpdate(prev, node.id, task, node.metadata?.startedAt || Date.now(), { width: node.width, height: node.height }));
@@ -654,10 +657,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             const audioTargets = nodesRef.current.filter((node) => node.type === CanvasNodeType.Audio && node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && node.metadata.audioTaskId);
             audioTargets.forEach((node) => {
                 if (pollingAudioNodeIdsRef.current.has(node.id) || !node.metadata?.audioTaskId) return;
-                const workflowToken = node.metadata.workflowRef ? useUserStore.getState().token : "";
                 pollingAudioNodeIdsRef.current.add(node.id);
                 void (node.metadata.workflowRef
-                    ? getWorkflowTask(workflowToken, node.metadata.audioTaskId).then((task) => workflowAudioTask(task, workflowToken))
+                    ? (node.metadata.runningHubEntry ? getRunningHubTask(node.metadata.audioTaskId) : getWorkflowTask(node.metadata.audioTaskId)).then((task) => workflowAudioTask(task))
                     : pollCanvasAudioTaskStatus(node.metadata.audioTaskId))
                     .then((task) => {
                         setNodes((prev) => applyCanvasAudioTaskUpdate(prev, node.id, task, node.metadata?.startedAt || Date.now()));
@@ -798,9 +800,9 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
     const createConnectedNode = useCallback(
         (type: CanvasNodeType, pending: PendingConnectionCreate) => {
-            const workflowRef = isCanvasImageNodeType(type) ? effectiveConfig.imageWorkflowRef : type === CanvasNodeType.Video ? effectiveConfig.videoWorkflowRef : type === CanvasNodeType.Audio ? effectiveConfig.audioWorkflowRef : undefined;
+            const workflowRef = canvasDefaultWorkflowRef(effectiveConfig, isCanvasImageNodeType(type) ? effectiveConfig.imageWorkflowRef : type === CanvasNodeType.Video ? effectiveConfig.videoWorkflowRef : type === CanvasNodeType.Audio ? effectiveConfig.audioWorkflowRef : undefined);
             const metadata = type === CanvasNodeType.Config
-                ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count), workflowRef: effectiveConfig.imageWorkflowRef }
+                ? { model: effectiveConfig.imageModel || effectiveConfig.model, size: effectiveConfig.size, count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count), workflowRef: canvasDefaultWorkflowRef(effectiveConfig, effectiveConfig.imageWorkflowRef) }
                 : workflowRef ? { workflowRef } : undefined;
             const newNode = createCanvasNode(type, pending.position, metadata);
             const connection = normalizeConnection(pending.connection.nodeId, newNode.id, [...nodesRef.current, newNode], pending.connection.handleType);
@@ -816,7 +818,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             setPendingConnectionCreate(null);
             setConnecting(null);
         },
-        [effectiveConfig.audioWorkflowRef, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.imageWorkflowRef, effectiveConfig.model, effectiveConfig.size, effectiveConfig.videoWorkflowRef, message, setConnecting],
+        [effectiveConfig, message, setConnecting],
     );
 
     const cancelPendingConnectionCreate = useCallback(() => {
@@ -1072,14 +1074,14 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
     const createNode = useCallback(
         (type: CanvasNodeType, position?: Position, textContent?: string, nodeId?: string) => {
             const targetPosition = position || getCanvasCenter();
-            const workflowRef = isCanvasImageNodeType(type) ? effectiveConfig.imageWorkflowRef : type === CanvasNodeType.Video ? effectiveConfig.videoWorkflowRef : type === CanvasNodeType.Audio ? effectiveConfig.audioWorkflowRef : undefined;
+            const workflowRef = canvasDefaultWorkflowRef(effectiveConfig, isCanvasImageNodeType(type) ? effectiveConfig.imageWorkflowRef : type === CanvasNodeType.Video ? effectiveConfig.videoWorkflowRef : type === CanvasNodeType.Audio ? effectiveConfig.audioWorkflowRef : undefined);
             const configMetadata =
                 type === CanvasNodeType.Config
                     ? {
                         model: effectiveConfig.imageModel || effectiveConfig.model,
                         size: effectiveConfig.size,
                         count: getGenerationCount(effectiveConfig.canvasImageCount || effectiveConfig.count),
-                        workflowRef: effectiveConfig.imageWorkflowRef,
+                        workflowRef: canvasDefaultWorkflowRef(effectiveConfig, effectiveConfig.imageWorkflowRef),
                     }
                     : workflowRef ? { workflowRef } : undefined;
             const newNode = createCanvasNode(
@@ -1096,7 +1098,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
             setSelectedConnectionId(null);
             if (type !== CanvasNodeType.Text && type !== CanvasNodeType.Audio && type !== CanvasNodeType.Director) setDialogNodeId(newNode.id);
         },
-        [effectiveConfig.audioWorkflowRef, effectiveConfig.canvasImageCount, effectiveConfig.count, effectiveConfig.imageModel, effectiveConfig.imageWorkflowRef, effectiveConfig.model, effectiveConfig.size, effectiveConfig.videoWorkflowRef, getCanvasCenter],
+        [effectiveConfig, getCanvasCenter],
     );
 
     const deleteCanvasTaskRecords = useCallback(
@@ -2805,13 +2807,64 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         setContextMenu(null);
     }, []);
 
+    const handleRunRunningHub = useCallback(async (node: CanvasNodeData) => {
+        const entry = node.metadata?.runningHubEntry;
+        const ref = node.metadata?.workflowRef;
+        if (!entry || !ref) return;
+        if (!useBackendStore.getState().available) return message.error("RunningHub 运行需要连接后端服务");
+        const inputNode = node.type === CanvasNodeType.Config ? node : findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
+        const mode = entry.capability;
+        const config = { ...buildGenerationConfig(effectiveConfig, node, mode), count: "1" };
+        const type = mode === "image" ? CanvasNodeType.Image : mode === "video" ? CanvasNodeType.Video : CanvasNodeType.Audio;
+        const startedAt = Date.now();
+        const resultNode = node.type === CanvasNodeType.Config
+            ? createCanvasNode(type, { x: node.position.x + node.width + 96, y: node.position.y })
+            : node;
+        const clientTaskId = `client_${mode}_task_${resultNode.id}_${nanoid()}`;
+        const metadata: CanvasNodeMetadata = {
+            ...resultNode.metadata,
+            content: undefined, storageKey: undefined, errorDetails: undefined,
+            runningHubEntry: entry, runningHubFieldValues: node.metadata?.runningHubFieldValues, runningHubMedia: node.metadata?.runningHubMedia,
+            workflowRef: ref, status: NODE_STATUS_LOADING, startedAt, progress: 0, count: 1,
+            ...(mode === "image" ? { imageTaskId: clientTaskId, imageTaskResultId: undefined } : mode === "video" ? { videoTaskId: clientTaskId, videoTaskVideoId: undefined } : { audioTaskId: clientTaskId, audioTaskResultId: undefined }),
+        };
+        const output = { ...resultNode, title: `${entry.title || entry.workflowId} · 结果`, metadata };
+        setRunningNodeId(node.id);
+        setNodes((prev) => node.type === CanvasNodeType.Config
+            ? [...prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_LOADING, errorDetails: undefined } } : item), output]
+            : prev.map((item) => item.id === node.id ? output : item));
+        if (node.type === CanvasNodeType.Config) setConnections((prev) => [...prev, { id: nanoid(), fromNodeId: node.id, toNodeId: output.id }]);
+        try {
+            const context = await hydrateNodeGenerationContext(buildNodeGenerationContext(inputNode.id, nodesRef.current, connectionsRef.current, inputNode.metadata?.prompt || ""));
+            const task = await submitCanvasWorkflowTask(ref, config, mode, context.prompt, context.referenceImages, context.referenceVideos, context.referenceAudios, output.id, projectId, clientTaskId, node.metadata);
+            if (mode === "image") {
+                const result = await workflowImageTask(task);
+                setNodes((prev) => applyCanvasImageTaskUpdate(prev, output.id, result, startedAt, output));
+                setConnections((prev) => applyCanvasImageTaskConnections(prev, output.id, result));
+            } else if (mode === "video") {
+                const result = await workflowVideoTask(task);
+                setNodes((prev) => applyCanvasVideoTaskUpdate(prev, output.id, result, config, startedAt, output));
+            } else {
+                const result = await workflowAudioTask(task);
+                setNodes((prev) => applyCanvasAudioTaskUpdate(prev, output.id, result, startedAt));
+            }
+            if (node.type === CanvasNodeType.Config) setNodes((prev) => prev.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_SUCCESS } } : item));
+        } catch (error) {
+            const errorDetails = error instanceof Error ? error.message : "RunningHub 运行失败";
+            setNodes((prev) => prev.map((item) => item.id === output.id || item.id === node.id ? { ...item, metadata: { ...item.metadata, status: NODE_STATUS_ERROR, errorDetails } } : item));
+            message.error(errorDetails);
+        } finally {
+            setRunningNodeId((current) => current === node.id ? null : current);
+        }
+    }, [effectiveConfig, message, projectId]);
+
     const handleGenerateNode = useCallback(
         async (nodeId: string, mode: CanvasNodeGenerationMode, prompt: string) => {
             const sourceNode = nodesRef.current.find((node) => node.id === nodeId);
             const generationConfig = buildGenerationConfig(effectiveConfig, sourceNode, mode);
             const workflowRef = mode === "text" ? undefined : sourceNode?.metadata?.workflowRef;
-            if (workflowRef && !useUserStore.getState().token) {
-                message.error("工作流生成需要先登录");
+            if (workflowRef && !useBackendStore.getState().available) {
+                message.error("工作流生成需要连接后端服务");
                 return;
             }
             if (!workflowRef && !isAiConfigReady(generationConfig, generationConfig.model)) {
@@ -3633,11 +3686,11 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     }
 
                     const generationConfig = buildGenerationConfig(agentEffectiveConfig, undefined, mode);
-                    const agentWorkflowRef = mode === "image" ? agentEffectiveConfig.imageWorkflowRef : mode === "video" ? agentEffectiveConfig.videoWorkflowRef : agentEffectiveConfig.audioWorkflowRef;
+                    const agentWorkflowRef = canvasDefaultWorkflowRef(agentEffectiveConfig, mode === "image" ? agentEffectiveConfig.imageWorkflowRef : mode === "video" ? agentEffectiveConfig.videoWorkflowRef : agentEffectiveConfig.audioWorkflowRef);
                     if (!agentWorkflowRef && (!generationConfig.model || !isAiConfigReady(generationConfig, generationConfig.model))) {
                         return { ok: false, code: "model_not_configured", message: "请先在全局配置中完成" + (mode === "video" ? "视频" : mode === "audio" ? "音频" : "图片") + "模型配置" };
                     }
-                    if (agentWorkflowRef && !useUserStore.getState().token) return { ok: false, code: "login_required", message: "工作流生成需要先登录" };
+                    if (agentWorkflowRef && !useBackendStore.getState().available) return { ok: false, code: "backend_required", message: "工作流生成需要连接后端服务" };
 
                     const prompt = stringValue("prompt");
                     const metadata: CanvasNodeMetadata = {
@@ -3744,6 +3797,10 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
 
     const handleRetryNode = useCallback(
         async (node: CanvasNodeData) => {
+            if (node.metadata?.runningHubEntry) {
+                await handleRunRunningHub(node);
+                return;
+            }
             const sourceNode = findRetrySourceNode(node.id, nodesRef.current, connectionsRef.current) || node;
             const retryWorkflowRef = node.metadata?.workflowRef;
             const batchPrimaryId = retryWorkflowRef && isCanvasImageNodeType(node.type) && node.metadata?.isBatchRoot ? node.metadata.primaryImageId : undefined;
@@ -3767,8 +3824,8 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         count: "1",
                     }
                     : { ...buildGenerationConfig(effectiveConfig, sourceNode, node.type === CanvasNodeType.Text ? "text" : node.type === CanvasNodeType.Video ? "video" : node.type === CanvasNodeType.Audio ? "audio" : "image"), count: "1" };
-            if (retryWorkflowRef && !useUserStore.getState().token) {
-                message.error("工作流生成需要先登录");
+            if (retryWorkflowRef && !useBackendStore.getState().available) {
+                message.error("工作流生成需要连接后端服务");
                 return;
             }
             if (!retryWorkflowRef && !isAiConfigReady(generationConfig, generationConfig.model)) {
@@ -3881,7 +3938,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 setRunningNodeId(null);
             }
         },
-        [effectiveConfig, message, openConfigDialog, projectId],
+        [effectiveConfig, handleRunRunningHub, message, openConfigDialog, projectId],
     );
 
     const generateImageFromTextNode = useCallback(
@@ -4170,7 +4227,15 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                             mentionReferences={mentionReferencesByNodeId.get(node.id) || []}
                             now={node.metadata?.status === NODE_STATUS_LOADING && !node.metadata.content && (node.type === CanvasNodeType.Video || isCanvasImageNodeType(node.type) || node.type === CanvasNodeType.Audio) ? canvasNow : undefined}
                             renderPanel={(panelNode) =>
-                                panelNode.type === CanvasNodeType.Config ? (
+                                panelNode.metadata?.runningHubEntry ? (panelNode.type === CanvasNodeType.Config ? null : <CanvasRunningHubNodePanel
+                                    node={panelNode}
+                                    embedded={false}
+                                    inputs={buildNodeGenerationInputs((findRetrySourceNode(panelNode.id, nodes, connections) || panelNode).id, nodes, connections)}
+                                    isRunning={runningNodeId === panelNode.id || panelNode.metadata.status === NODE_STATUS_LOADING}
+                                    onConfigChange={handleConfigNodeChange}
+                                    onGenerate={() => void handleRunRunningHub(panelNode)}
+                                    onChoose={() => setRunningHubCollection({})}
+                                />) : panelNode.type === CanvasNodeType.Config ? (
                                     <CanvasConfigComposer
                                         value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
                                         inputs={configInputsById.get(panelNode.id) || []}
@@ -4180,6 +4245,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                                 ) : panelNode.type === CanvasNodeType.Director ? null : (
                                     <CanvasNodePromptPanel
                                         node={panelNode}
+                                        onOpenRunningHub={() => setRunningHubCollection({})}
                                         isRunning={runningNodeId === panelNode.id}
                                         mentionReferences={mentionReferencesByNodeId.get(panelNode.id) || []}
                                         connectedNodes={connectedNodesByNodeId.get(panelNode.id) || []}
@@ -4198,11 +4264,19 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                                 )
                             }
                             renderNodeContent={(contentNode) =>
-                                contentNode.type === CanvasNodeType.Director ? (
+                                contentNode.metadata?.runningHubEntry ? <CanvasRunningHubNodePanel
+                                    node={contentNode}
+                                    inputs={configInputsById.get(contentNode.id) || []}
+                                    isRunning={runningNodeId === contentNode.id}
+                                    onConfigChange={handleConfigNodeChange}
+                                    onGenerate={() => void handleRunRunningHub(contentNode)}
+                                    onChoose={() => setRunningHubCollection({ nodeId: contentNode.id })}
+                                /> : contentNode.type === CanvasNodeType.Director ? (
                                     <CanvasDirectorNodePanel onOpen={() => setOpenDirectorNodeId(contentNode.id)} />
                                 ) : (
                                     <CanvasConfigNodePanel
                                         node={contentNode}
+                                        onOpenRunningHub={() => setRunningHubCollection({})}
                                         isRunning={runningNodeId === contentNode.id}
                                         inputSummary={getInputSummary(configInputsById.get(contentNode.id) || [])}
                                         videoFrameOptions={videoFrameOptionsByNodeId.get(contentNode.id) || []}
@@ -4342,6 +4416,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     onAddPanorama={() => createNode(CanvasNodeType.Panorama)}
                     onAddDirector={() => createNode(CanvasNodeType.Director)}
                     onAddConfig={() => createNode(CanvasNodeType.Config)}
+                    onOpenRunningHub={() => setRunningHubCollection({})}
                     onUndo={undoCanvas}
                     onRedo={redoCanvas}
                     onUpload={() => handleUploadRequest()}
@@ -4359,6 +4434,18 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                         setAssetPickerOpen(true);
                     }}
                 />
+
+                {runningHubCollection ? <CanvasRunningHubCollection onClose={() => setRunningHubCollection(null)} onSelect={(ref, entry) => {
+                    const metadata: CanvasNodeMetadata = { workflowRef: ref, runningHubEntry: entry, runningHubFieldValues: runningHubInitialValues(entry), runningHubMedia: {}, generationMode: entry.capability, count: 1, status: "idle" };
+                    const height = Math.min(520, Math.max(300, 160 + entry.fields.length * 70));
+                    const existing = nodesRef.current.find((node) => node.id === runningHubCollection.nodeId);
+                    const next = existing ? { ...existing, title: entry.title, height, metadata } : { ...createCanvasNode(CanvasNodeType.Config, getCanvasCenter(), metadata), title: entry.title, width: 380, height };
+                    setNodes((prev) => existing ? prev.map((node) => node.id === next.id ? next : node) : [...prev, next]);
+                    setSelectedNodeIds(new Set([next.id]));
+                    setSelectedConnectionId(null);
+                    setDialogNodeId(null);
+                    setRunningHubCollection(null);
+                }} /> : null}
 
                 {isMiniMapOpen ? <Minimap nodes={nodes} viewport={viewport} viewportSize={size} onViewportChange={setViewport} /> : null}
 
@@ -4855,9 +4942,7 @@ function CanvasTopBar({
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
     const titleRef = useRef<HTMLDivElement>(null);
-    const accountRef = useRef<HTMLDivElement>(null);
     const [shortcutsOpen, setShortcutsOpen] = useState(false);
-    const [accountOpen, setAccountOpen] = useState(false);
 
     useEffect(() => {
         if (!isTitleEditing) return;
@@ -4868,14 +4953,6 @@ function CanvasTopBar({
         return () => document.removeEventListener("pointerdown", close, true);
     }, [isTitleEditing, onFinishTitleEditing]);
 
-    useEffect(() => {
-        if (!accountOpen) return;
-        const close = (event: PointerEvent) => {
-            if (!accountRef.current?.contains(event.target as Node)) setAccountOpen(false);
-        };
-        document.addEventListener("pointerdown", close, true);
-        return () => document.removeEventListener("pointerdown", close, true);
-    }, [accountOpen]);
 
     return (
         <>
@@ -4934,12 +5011,8 @@ function CanvasTopBar({
                 </div>
 
                 <div className="pointer-events-auto flex items-center gap-1.5">
-                    <UserStatusActions
+                    <AppActions
                         variant="canvas"
-                        accountOpen={accountOpen}
-                        onAccountOpenChange={setAccountOpen}
-                        accountRef={accountRef}
-                        getPopupContainer={(node) => node.parentElement || document.body}
                         onOpenShortcuts={() => {
                             setShortcutsOpen(true);
                             setAccountOpen(false);
@@ -5716,16 +5789,19 @@ function canvasTaskFailed(status?: string) {
     return ["failed", "fail", "error", "cancelled", "canceled"].includes((status || "").toLowerCase());
 }
 
-async function submitCanvasWorkflowTask(ref: WorkflowRef, config: AiConfig, mode: "image" | "video" | "audio", prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], nodeId: string, projectId: string, clientTaskId: string) {
-    const token = useUserStore.getState().token;
-    if (!token) throw new Error("工作流生成需要先登录");
+async function submitCanvasWorkflowTask(ref: WorkflowRef, config: AiConfig, mode: "image" | "video" | "audio", prompt: string, images: ReferenceImage[], videos: ReferenceVideo[], audios: ReferenceAudio[], nodeId: string, projectId: string, clientTaskId: string, metadata?: CanvasNodeMetadata) {
+    if (!useBackendStore.getState().available) throw new Error("工作流生成需要连接后端服务");
+    if (metadata?.runningHubEntry) {
+        const inputs = await runningHubCanvasInputs(metadata, images, videos, audios);
+        const task = await submitRunningHubTask({ ref, expectedCapability: mode, prompt, ...inputs, source: "canvas", sourceId: projectId, nodeId, clientTaskId });
+        return task;
+    }
     const [referenceImages, referenceVideos, referenceAudios] = await Promise.all([
         Promise.all(images.map((image) => workflowMediaSource(image.dataUrl))),
         Promise.all(videos.map((video) => workflowMediaSource(video.url))),
         Promise.all(audios.map((audio) => workflowMediaSource(audio.url))),
     ]);
-    if (useUserStore.getState().token !== token) throw new Error("登录状态已变化");
-    const task = await submitWorkflowTask(token, {
+    const task = await submitWorkflowTask({
         ref,
         expectedCapability: mode,
         prompt,
@@ -5746,35 +5822,28 @@ async function submitCanvasWorkflowTask(ref: WorkflowRef, config: AiConfig, mode
         audioInstructions: config.audioInstructions,
         source: "canvas", sourceId: projectId, nodeId, clientTaskId,
     });
-    if (useUserStore.getState().token !== token) throw new Error("登录状态已变化");
     return task;
 }
 
-async function workflowImageTask(task: WorkflowGenerationTask, token = useUserStore.getState().token): Promise<CanvasImageTask> {
-    if (!token || useUserStore.getState().token !== token) throw new Error("登录状态已变化");
+async function workflowImageTask(task: WorkflowGenerationTask): Promise<CanvasImageTask> {
     const images = task.status === "succeeded" ? await Promise.all((task.urls || []).map((url) => {
         const storageKey = comfyOutputStorageKey(url);
-        return storageKey ? { url, storageKey, width: 0, height: 0, bytes: 0, mimeType: "image/png" } : uploadImage(url, { token });
+        return storageKey ? { url, storageKey, width: 0, height: 0, bytes: 0, mimeType: "image/png" } : uploadImage(url);
     })) : [];
-    if (useUserStore.getState().token !== token) throw new Error("登录状态已变化");
     return { id: task.id, source: "workflow", status: task.status === "succeeded" ? "completed" : task.status, progress: task.progress, image_url: images[0]?.url, image_urls: images.map((image) => image.url), imageStorage: images, storageKey: images[0]?.storageKey, width: images[0]?.width, height: images[0]?.height, mimeType: images[0]?.mimeType, bytes: images[0]?.bytes, error: task.error ? { message: task.error } : undefined };
 }
 
-async function workflowVideoTask(task: WorkflowGenerationTask, token = useUserStore.getState().token): Promise<VideoResponse> {
-    if (!token || useUserStore.getState().token !== token) throw new Error("登录状态已变化");
+async function workflowVideoTask(task: WorkflowGenerationTask): Promise<VideoResponse> {
     const url = task.status === "succeeded" ? task.urls?.[0] || "" : "";
     const storageKey = comfyOutputStorageKey(url);
-    const video = url && !storageKey ? await uploadMediaFile(await downloadRemoteMedia(url), "workflow-video", undefined, token) : null;
-    if (useUserStore.getState().token !== token) throw new Error("登录状态已变化");
+    const video = url && !storageKey ? await uploadMediaFile(await downloadRemoteMedia(url), "workflow-video") : null;
     return { id: task.id, task_id: task.id, status: task.status === "succeeded" ? "completed" : task.status, progress: task.progress, video_url: video?.url || url, url: video?.url || url, storageKey: video?.storageKey || storageKey, error: task.error ? { message: task.error } : undefined };
 }
 
-async function workflowAudioTask(task: WorkflowGenerationTask, token = useUserStore.getState().token): Promise<CanvasAudioTask> {
-    if (!token || useUserStore.getState().token !== token) throw new Error("登录状态已变化");
+async function workflowAudioTask(task: WorkflowGenerationTask): Promise<CanvasAudioTask> {
     const url = task.status === "succeeded" ? task.urls?.[0] || "" : "";
     const storageKey = comfyOutputStorageKey(url);
-    const audio = url && !storageKey ? await uploadMediaFile(await downloadRemoteMedia(url), "workflow-audio", undefined, token) : null;
-    if (useUserStore.getState().token !== token) throw new Error("登录状态已变化");
+    const audio = url && !storageKey ? await uploadMediaFile(await downloadRemoteMedia(url), "workflow-audio") : null;
     return { id: task.id, status: task.status === "succeeded" ? "completed" : task.status, progress: task.progress, audio_url: audio?.url || url, url: audio?.url || url, storageKey: audio?.storageKey || storageKey, mimeType: audio?.mimeType || "audio/mpeg", bytes: audio?.bytes || 0, error: task.error ? { message: task.error } : undefined };
 }
 

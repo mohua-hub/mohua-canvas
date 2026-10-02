@@ -3,8 +3,8 @@ import { uploadImage } from "./image-storage";
 import { uploadMediaBlob } from "./file-storage";
 import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 import { useAssetStore, mergeAssets } from "@/stores/use-asset-store";
-import { useUserStore } from "@/stores/use-user-store";
-import { fetchUserConfig, syncUserAssetData, syncUserImageHistory } from "./api/user-config";
+import { useBackendStore } from "@/stores/use-backend-store";
+import { fetchWorkspaceConfig, syncWorkspaceAssetData, syncWorkspaceImageHistory } from "./api/workspace-config";
 import { saveVideoGenerationLogs } from "./api/generation-logs";
 
 export async function checkLocalAssetsExist(): Promise<boolean> {
@@ -36,11 +36,11 @@ export async function checkLocalAssetsExist(): Promise<boolean> {
 export async function migrateLocalAssetsToCloud(
     onProgress: (current: number, total: number) => void
 ): Promise<void> {
-    const token = useUserStore.getState().token;
-    if (!token) throw new Error("请先登录");
+    const backendConnected = useBackendStore.getState().available;
+    if (!backendConnected) throw new Error("请先连接后端服务");
 
     // 先拉取云端已存的数据
-    const userConfig = await fetchUserConfig(token).catch(() => null);
+    const userConfig = await fetchWorkspaceConfig().catch(() => null);
     const remoteAssets = userConfig?.assetData as { assets?: any[] } | undefined;
 
     const imageStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
@@ -152,7 +152,6 @@ export async function migrateLocalAssetsToCloud(
                 );
             useCanvasStore.setState(finalCanvas);
             await useCanvasStore.getState().syncWithRemote(
-                token,
                 true,
             );
         } catch (error) {
@@ -179,7 +178,7 @@ export async function migrateLocalAssetsToCloud(
             // Set in Zustand store
             useAssetStore.setState(finalAssets);
             // Sync to server
-            await syncUserAssetData(token, finalAssets);
+            await syncWorkspaceAssetData(finalAssets);
         } catch (e) {
             console.error("Failed to migrate assets", e);
         }
@@ -208,7 +207,7 @@ export async function migrateLocalAssetsToCloud(
             await imageCategoryStore.setItem("infinite-canvas:image_generation_categories", nextLogsData.categories);
 
             // Sync to server
-            await syncUserImageHistory(token, { logs: nextLogsData.logs, categories: nextLogsData.categories });
+            await syncWorkspaceImageHistory({ logs: nextLogsData.logs, categories: nextLogsData.categories });
         } catch (e) {
             console.error("Failed to migrate image logs", e);
         }
@@ -234,7 +233,7 @@ export async function migrateLocalAssetsToCloud(
             );
 
             // Sync to server
-            await saveVideoGenerationLogs(token, nextVideoLogsData.logs);
+            await saveVideoGenerationLogs(nextVideoLogsData.logs);
         } catch (e) {
             console.error("Failed to migrate video logs", e);
         }

@@ -51,6 +51,10 @@ type CanvasProject = {
 
 ## 节点结构
 
+RunningHub 参数节点复用 `config` 类型，通过 `metadata.runningHubEntry` 区分。该字段保存已选条目的名称、ID、用途与启用字段快照，不包含渠道密钥或完整工作流 JSON；`workflowRef` 保存条目的归属和渠道引用。`runningHubFieldValues` 使用 `field:<nodeId>:<fieldName>` 保存字段输入，`runningHubMedia` 使用同一字段键保存参考素材的画布节点 ID。刷新字段配置时保留仍然存在的字段输入；更换条目时初始化新条目的默认值。
+
+运行时从连接的资源节点获取参考素材，按字段配置的序号和用户选择上传；生成结果使用现有图片、视频或音频节点，并通过 `workflowRef` 与字段快照继续查询和重试。上述数据随项目存入 localforage，后端连接且同步可用时同步至共享工作区；RunningHub 执行需要连接后端和已保存的渠道配置。
+
 每个节点是一个 `CanvasNodeData`：
 
 ```ts

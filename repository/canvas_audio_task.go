@@ -17,18 +17,18 @@ func UpdateCanvasAudioTask(task model.CanvasAudioTask) (model.CanvasAudioTask, e
 	}
 
 	return task, db.Model(&model.CanvasAudioTask{}).
-		Where("user_id = ? AND id = ?", task.UserID, task.ID).
+		Where("workspace_id = ? AND id = ?", task.WorkspaceID, task.ID).
 		Select("*").
 		Updates(&task).Error
 }
 
-func GetUserCanvasAudioTask(userID string, id string) (model.CanvasAudioTask, bool, error) {
+func GetWorkspaceCanvasAudioTask(workspaceID string, id string) (model.CanvasAudioTask, bool, error) {
 	db, err := DB()
 	if err != nil {
 		return model.CanvasAudioTask{}, false, err
 	}
 	var task model.CanvasAudioTask
-	err = db.First(&task, "user_id = ? AND id = ?", userID, id).Error
+	err = db.First(&task, "workspace_id = ? AND id = ?", workspaceID, id).Error
 	if err != nil {
 		return model.CanvasAudioTask{}, false, nil
 	}

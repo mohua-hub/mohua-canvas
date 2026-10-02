@@ -78,7 +78,7 @@ var (
 	storageCapacityMu   sync.Mutex
 )
 
-// HasAdminStorageProvider 检查管理员是否配置了有效的对象存储。
+// HasAdminStorageProvider 检查设置中是否配置了有效的对象存储。
 func HasAdminStorageProvider(storage model.PrivateStorageSetting) bool {
 	for _, provider := range storage.Providers {
 		if provider.Enabled && storageProviderConfigured(provider) {
@@ -89,11 +89,7 @@ func HasAdminStorageProvider(storage model.PrivateStorageSetting) bool {
 }
 
 func canUseGlobalStorage(ctx context.Context, storage model.PrivateStorageSetting) bool {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" || user.Role == model.UserRoleGuest {
-		return false
-	}
-	return user.Role == model.UserRoleAdmin || storage.AllowUserGlobalProvider
+	return storage.UseGlobalProvider
 }
 
 // HasActiveCloudStorage 判断当前请求是否有可用的云存储。
@@ -107,15 +103,13 @@ func HasActiveCloudStorage(ctx context.Context) (bool, error) {
 	if canUseGlobalStorage(ctx, storage) && HasAdminStorageProvider(storage) {
 		return true, nil
 	}
-	if storage.AllowUserProvider {
-		user, ok := UserFromContext(ctx)
-		if ok && user.ID != "" {
-			config, found, err := repository.GetUserConfig(user.ID)
-			if err == nil && found {
-				for _, provider := range userStorageProvidersForOwner(config.StorageProvider, user.ID) {
-					if provider.Enabled && storageProviderConfigured(provider) {
-						return true, nil
-					}
+	if storage.AllowCustomProvider {
+		workspaceID := WorkspaceID
+		config, found, err := repository.GetWorkspaceConfig(workspaceID)
+		if err == nil && found {
+			for _, provider := range customStorageProvidersForOwner(config.StorageProvider, workspaceID) {
+				if provider.Enabled && storageProviderConfigured(provider) {
+					return true, nil
 				}
 			}
 		}
@@ -135,11 +129,11 @@ func PublicStorageConfig() (model.PublicStorageConfig, error) {
 	mode := "local_indexeddb"
 	if HasAdminStorageProvider(storage) {
 		mode = "server_sqlite_s3"
-	} else if storage.AllowUserProvider {
+	} else if storage.AllowCustomProvider {
 		mode = "hybrid"
 	}
 
-	return model.PublicStorageConfig{PublicStorageSetting: model.PublicStorageSetting{Mode: mode, AllowUserProvider: storage.AllowUserProvider, AllowUserGlobalProvider: storage.AllowUserGlobalProvider}, AutoSyncAllAssets: storage.AutoSyncAllAssets}, nil
+	return model.PublicStorageConfig{PublicStorageSetting: model.PublicStorageSetting{Mode: mode, AllowCustomProvider: storage.AllowCustomProvider, UseGlobalProvider: storage.UseGlobalProvider}, AutoSyncAllAssets: storage.AutoSyncAllAssets}, nil
 }
 
 // StorageObjectInfo 获取存储对象元数据。
@@ -147,17 +141,14 @@ func StorageObjectInfo(id string) (model.StorageObject, error) {
 	return repository.GetStorageObject(id)
 }
 
-// SaveCurrentUserStorageProvider 保存用户配置的存储提供商。
-func SaveCurrentUserStorageProvider(ctx context.Context, incoming UserStorageProviders) (UserConfigPayload, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return UserConfigPayload{}, errors.New("请先登录")
-	}
-	config, _, err := repository.GetUserConfig(user.ID)
+// SaveCurrentWorkspaceStorageProvider 保存自定义存储提供商。
+func SaveCurrentWorkspaceStorageProvider(ctx context.Context, incoming CustomStorageProviders) (WorkspaceConfigPayload, error) {
+	workspaceID := WorkspaceID
+	config, _, err := repository.GetWorkspaceConfig(workspaceID)
 	if err != nil {
-		return UserConfigPayload{}, err
+		return WorkspaceConfigPayload{}, err
 	}
-	providers := readUserStorageProviders(config.StorageProvider)
+	providers := readCustomStorageProviders(config.StorageProvider)
 	if incoming.S3 != nil {
 		provider := *incoming.S3
 		provider.Type = model.StorageProviderTypeS3
@@ -168,24 +159,24 @@ func SaveCurrentUserStorageProvider(ctx context.Context, incoming UserStoragePro
 		provider.Type = model.StorageProviderTypeWebDAV
 		providers.WebDAV = &provider
 	}
-	if err := validateUserStorageProviderTypes(providers); err != nil {
-		return UserConfigPayload{}, err
+	if err := validateCustomStorageProviderTypes(providers); err != nil {
+		return WorkspaceConfigPayload{}, err
 	}
 	raw, err := json.Marshal(providers)
 	if err != nil {
-		return UserConfigPayload{}, err
+		return WorkspaceConfigPayload{}, err
 	}
 	current := now()
-	if config.UserID == "" {
-		config.UserID = user.ID
+	if config.WorkspaceID == "" {
+		config.WorkspaceID = workspaceID
 		config.CreatedAt = current
 	}
 	config.StorageProvider = string(raw)
 	config.UpdatedAt = current
-	if _, err := repository.SaveUserConfig(config); err != nil {
-		return UserConfigPayload{}, err
+	if _, err := repository.SaveWorkspaceConfig(config); err != nil {
+		return WorkspaceConfigPayload{}, err
 	}
-	return CurrentUserConfig(ctx)
+	return CurrentWorkspaceConfig(ctx)
 }
 
 // UploadStorageObject 上传对象到存储。
@@ -200,12 +191,12 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 		return UploadedStorageObject{}, err
 	}
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
-	usingUserProvider := providerInput != nil && storage.AllowUserProvider
+	usingUserProvider := providerInput != nil && storage.AllowCustomProvider
 	var provider model.StorageProvider
 	if usingUserProvider {
-		provider = normalizeUserStorageProvider(*providerInput, ctx)
+		provider = normalizeCustomStorageProvider(*providerInput, ctx)
 		if !provider.Enabled || !storageProviderConfigured(provider) {
-			return UploadedStorageObject{}, errors.New("用户对象存储配置不完整")
+			return UploadedStorageObject{}, errors.New("自定义对象存储配置不完整")
 		}
 	} else {
 		if !canUseGlobalStorage(ctx, storage) {
@@ -224,12 +215,9 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	if provider.Type == model.StorageProviderTypeWebDAV && ext == ".bin" && strings.HasPrefix(strings.ToLower(contentType), "video/mp4") {
 		ext = ".mp4"
 	}
-	userID := "anonymous"
-	if user, ok := UserFromContext(ctx); ok && user.ID != "" {
-		userID = user.ID
-	}
+	workspaceID := WorkspaceID
 	nowTime := time.Now()
-	objectKey := strings.Trim(strings.Trim(provider.PathPrefix, "/")+"/"+userID+"/"+nowTime.Format("2006/01/02")+"/"+objectID+ext, "/")
+	objectKey := strings.Trim(strings.Trim(provider.PathPrefix, "/")+"/"+workspaceID+"/"+nowTime.Format("2006/01/02")+"/"+objectID+ext, "/")
 	sum := sha256.Sum256(data)
 	if err := putStorageObject(provider, objectKey, contentType, data); err != nil {
 		return UploadedStorageObject{}, err
@@ -237,7 +225,7 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	publicURL := objectURL(provider, objectKey)
 	object := model.StorageObject{
 		ID: objectID, ProviderID: provider.ID, Bucket: provider.Bucket, ObjectKey: objectKey, PublicURL: publicURL,
-		MimeType: contentType, Bytes: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), CreatedBy: userID, CreatedAt: now(),
+		MimeType: contentType, Bytes: int64(len(data)), SHA256: hex.EncodeToString(sum[:]), CreatedBy: workspaceID, CreatedAt: now(),
 	}
 	if _, err := repository.SaveStorageObject(object); err != nil {
 		return UploadedStorageObject{}, err
@@ -249,29 +237,26 @@ func UploadStorageObjectWithProvider(ctx context.Context, filename string, conte
 	return UploadedStorageObject{ID: objectID, URL: url, StorageKey: "server:" + objectID, Bytes: int64(len(data)), MimeType: contentType}, nil
 }
 
-// RegisterDirectStorageObject 登记浏览器已直传至用户 WebDAV 的对象。
+// RegisterDirectStorageObject 登记浏览器已直传至自定义 WebDAV 的对象。
 func RegisterDirectStorageObject(ctx context.Context, input DirectStorageObjectInput) (UploadedStorageObject, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" || user.Role == model.UserRoleGuest {
-		return UploadedStorageObject{}, errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return UploadedStorageObject{}, err
 	}
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
-	if !storage.AllowUserProvider || input.Provider.Type != model.StorageProviderTypeWebDAV {
-		return UploadedStorageObject{}, errors.New("用户 WebDAV 未启用")
+	if !storage.AllowCustomProvider || input.Provider.Type != model.StorageProviderTypeWebDAV {
+		return UploadedStorageObject{}, errors.New("自定义 WebDAV 未启用")
 	}
-	provider := normalizeUserStorageProvider(input.Provider, ctx)
+	provider := normalizeCustomStorageProvider(input.Provider, ctx)
 	if !provider.Enabled || !storageProviderConfigured(provider) {
-		return UploadedStorageObject{}, errors.New("用户 WebDAV 配置不完整")
+		return UploadedStorageObject{}, errors.New("自定义 WebDAV 配置不完整")
 	}
 	objectKey, err := cleanStoragePath(input.ObjectKey)
 	if err != nil {
 		return UploadedStorageObject{}, err
 	}
-	prefix := strings.Trim(path.Join(provider.PathPrefix, user.ID), "/") + "/"
+	prefix := strings.Trim(path.Join(provider.PathPrefix, workspaceID), "/") + "/"
 	if !strings.HasPrefix(objectKey, prefix) {
 		return UploadedStorageObject{}, errors.New("WebDAV 对象路径无效")
 	}
@@ -285,7 +270,7 @@ func RegisterDirectStorageObject(ctx context.Context, input DirectStorageObjectI
 	objectID := uuid.NewString()
 	object := model.StorageObject{
 		ID: objectID, ProviderID: provider.ID, ObjectKey: objectKey, MimeType: contentType,
-		Bytes: input.Bytes, Direct: true, CreatedBy: user.ID, CreatedAt: now(),
+		Bytes: input.Bytes, Direct: true, CreatedBy: workspaceID, CreatedAt: now(),
 	}
 	if _, err := repository.SaveStorageObject(object); err != nil {
 		return UploadedStorageObject{}, err
@@ -305,9 +290,6 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 		}
 		return err
 	}
-	if user, ok := UserFromContext(ctx); ok && object.CreatedBy != "" && object.CreatedBy != user.ID {
-		return errors.New("无权删除该对象")
-	}
 	settings, err := repository.GetSettings()
 	if err != nil {
 		return err
@@ -315,12 +297,12 @@ func DeleteStorageObject(ctx context.Context, id string, providerInput *StorageO
 	storage := normalizePrivateStorageSetting(settings.Private.Storage)
 	providers := storage.Providers
 	if object.CreatedBy != "" && object.CreatedBy != "anonymous" {
-		if config, found, loadErr := repository.GetUserConfig(object.CreatedBy); loadErr == nil && found {
-			providers = append(userStorageProvidersForOwner(config.StorageProvider, object.CreatedBy), providers...)
+		if config, found, loadErr := repository.GetWorkspaceConfig(object.CreatedBy); loadErr == nil && found {
+			providers = append(customStorageProvidersForOwner(config.StorageProvider, object.CreatedBy), providers...)
 		}
 	}
-	if providerInput != nil && storage.AllowUserProvider {
-		providers = append([]model.StorageProvider{normalizeUserStorageProvider(*providerInput, ctx)}, providers...)
+	if providerInput != nil && storage.AllowCustomProvider {
+		providers = append([]model.StorageProvider{normalizeCustomStorageProvider(*providerInput, ctx)}, providers...)
 	}
 	provider, ok := findStorageProviderForObject(object, providers)
 	if !ok {
@@ -341,16 +323,15 @@ func DeleteDirectStorageObjectRecord(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" || object.CreatedBy != user.ID || !object.Direct {
-		return errors.New("无权删除该对象记录")
+	if !object.Direct {
+		return errors.New("该对象不是浏览器直传记录")
 	}
 	return repository.DeleteStorageObjectRecord(id)
 }
 
-// MeasureUserStorageProvider 统计用户存储提供商的已用容量。
-func MeasureUserStorageProvider(ctx context.Context, providerInput StorageObjectProviderInput) (StorageCapacityResult, error) {
-	provider := normalizeUserStorageProvider(providerInput, ctx)
+// MeasureCustomStorageProvider 统计用户存储提供商的已用容量。
+func MeasureCustomStorageProvider(ctx context.Context, providerInput StorageObjectProviderInput) (StorageCapacityResult, error) {
+	provider := normalizeCustomStorageProvider(providerInput, ctx)
 	bytes, err := measureStorageProvider(provider)
 	if err != nil {
 		return StorageCapacityResult{}, err
@@ -359,7 +340,7 @@ func MeasureUserStorageProvider(ctx context.Context, providerInput StorageObject
 	return StorageCapacityResult{Bytes: bytes, LimitBytes: defaultStorageCapacityLimitBytes, OverLimit: bytes >= defaultStorageCapacityLimitBytes, CheckedAt: checkedAt, ProviderName: provider.Name}, nil
 }
 
-// MeasureAdminStorageProvider 管理员统计存储容量。
+// MeasureAdminStorageProvider 设置中统计存储容量。
 func MeasureAdminStorageProvider(index int, providerInput *model.StorageProvider) (StorageCapacityResult, error) {
 	settings, err := repository.GetSettings()
 	if err != nil {
@@ -483,8 +464,8 @@ func DownloadStorageObject(id string, rangeHeader string) (DownloadedStorageObje
 
 	providers := []model.StorageProvider{}
 	if object.CreatedBy != "" && object.CreatedBy != "anonymous" {
-		if config, found, loadErr := repository.GetUserConfig(object.CreatedBy); loadErr == nil && found {
-			providers = append(providers, userStorageProvidersForOwner(config.StorageProvider, object.CreatedBy)...)
+		if config, found, loadErr := repository.GetWorkspaceConfig(object.CreatedBy); loadErr == nil && found {
+			providers = append(providers, customStorageProvidersForOwner(config.StorageProvider, object.CreatedBy)...)
 		}
 	}
 	if settings, loadErr := repository.GetSettings(); loadErr == nil {
@@ -825,15 +806,12 @@ func objectURL(provider model.StorageProvider, objectKey string) string {
 	return strings.TrimRight(provider.PublicBaseURL, "/") + "/" + strings.TrimLeft(objectKey, "/")
 }
 
-func normalizeUserStorageProvider(input StorageObjectProviderInput, ctx context.Context) model.StorageProvider {
-	owner := "anonymous"
-	if user, ok := UserFromContext(ctx); ok && user.ID != "" {
-		owner = user.ID
-	}
-	return normalizeUserStorageProviderForOwner(input, owner)
+func normalizeCustomStorageProvider(input StorageObjectProviderInput, ctx context.Context) model.StorageProvider {
+	owner := WorkspaceID
+	return normalizeCustomStorageProviderForOwner(input, owner)
 }
 
-func normalizeUserStorageProviderForOwner(input StorageObjectProviderInput, owner string) model.StorageProvider {
+func normalizeCustomStorageProviderForOwner(input StorageObjectProviderInput, owner string) model.StorageProvider {
 	enabled := true
 	if input.Enabled != nil {
 		enabled = *input.Enabled
@@ -852,27 +830,27 @@ func normalizeUserStorageProviderForOwner(input StorageObjectProviderInput, owne
 		Password:        input.Password,
 		Weight:          1,
 		Enabled:         enabled,
-		OwnerUserID:     owner,
+		OwnerWorkspaceID:     owner,
 	})
 }
 
-func userStorageProvidersForOwner(raw string, owner string) []model.StorageProvider {
-	inputs := readUserStorageProviders(raw)
+func customStorageProvidersForOwner(raw string, owner string) []model.StorageProvider {
+	inputs := readCustomStorageProviders(raw)
 	providers := make([]model.StorageProvider, 0, 2)
 	if inputs.S3 != nil {
 		input := *inputs.S3
 		input.Type = model.StorageProviderTypeS3
-		providers = append(providers, normalizeUserStorageProviderForOwner(input, owner))
+		providers = append(providers, normalizeCustomStorageProviderForOwner(input, owner))
 	}
 	if inputs.WebDAV != nil {
 		input := *inputs.WebDAV
 		input.Type = model.StorageProviderTypeWebDAV
-		providers = append(providers, normalizeUserStorageProviderForOwner(input, owner))
+		providers = append(providers, normalizeCustomStorageProviderForOwner(input, owner))
 	}
 	return providers
 }
 
-func validateUserStorageProviderTypes(providers UserStorageProviders) error {
+func validateCustomStorageProviderTypes(providers CustomStorageProviders) error {
 	s3Enabled := providers.S3 != nil && (providers.S3.Enabled == nil || *providers.S3.Enabled)
 	webDAVEnabled := providers.WebDAV != nil && (providers.WebDAV.Enabled == nil || *providers.WebDAV.Enabled)
 	if s3Enabled && webDAVEnabled {

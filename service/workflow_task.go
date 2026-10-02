@@ -25,9 +25,8 @@ const workflowTaskTimeout = time.Hour
 
 var ErrWorkflowTaskNotFound = errors.New("工作流任务不存在")
 
-func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input WorkflowRunInput) (result WorkflowTaskResult, err error) {
-	user.DisplayName = firstNonEmpty(user.DisplayName, user.Username)
-	resolved, err := ResolveWorkflowForUser(user, input.Ref)
+func CreateWorkflowTask(ctx context.Context, workspaceID string, input WorkflowRunInput) (result WorkflowTaskResult, err error) {
+	resolved, err := ResolveWorkflowForWorkspace(workspaceID, input.Ref)
 	if err != nil {
 		return WorkflowTaskResult{}, err
 	}
@@ -39,8 +38,8 @@ func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input Workflow
 		return WorkflowTaskResult{}, safeMessageError{message: err.Error()}
 	}
 	refJSON, _ := json.Marshal(input.Ref)
-	taskID := workflowTaskID(user.ID, resolved.Entry.Capability, input.ClientTaskID)
-	if prior, found, err := workflowTaskSnapshot(user.ID, taskID); err != nil {
+	taskID := workflowTaskID(workspaceID, resolved.Entry.Capability, input.ClientTaskID)
+	if prior, found, err := workflowTaskSnapshot(workspaceID, taskID); err != nil {
 		return WorkflowTaskResult{}, err
 	} else if found {
 		if prior.ref != string(refJSON) {
@@ -48,22 +47,14 @@ func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input Workflow
 		}
 		return prior.result, nil
 	}
-	billingName := workflowBillingName(input.Ref)
-	credits := 0.0
-	if input.Ref.Scope == "system" {
-		credits, err = ModelCost(billingName)
-		if err != nil {
-			return WorkflowTaskResult{}, err
-		}
-	}
-	if err := createWorkflowTaskRecord(user, taskID, resolved, input, string(refJSON), billingName, credits); err != nil {
-		if prior, found, lookupErr := workflowTaskSnapshot(user.ID, taskID); lookupErr == nil && found && prior.ref == string(refJSON) {
+	if err := createWorkflowTaskRecord(workspaceID, taskID, resolved, input, string(refJSON)); err != nil {
+		if prior, found, lookupErr := workflowTaskSnapshot(workspaceID, taskID); lookupErr == nil && found && prior.ref == string(refJSON) {
 			return prior.result, nil
 		}
 		return WorkflowTaskResult{}, err
 	}
 	startedAt := time.Now()
-	logInput := AICallLogInput{UserID: user.ID, UserDisplayName: user.DisplayName, Endpoint: "/api/v1/workflow-tasks", Method: "POST", Model: resolved.Entry.Title, ChannelID: resolved.Channel.ID, ChannelName: resolved.Channel.Name, Credits: credits}
+	logInput := AICallLogInput{WorkspaceID: workspaceID, Endpoint: "/api/v1/workflow-tasks", Method: "POST", Model: resolved.Entry.Title, ChannelID: resolved.Channel.ID, ChannelName: resolved.Channel.Name, }
 	defer func() {
 		upstreamStatus := logInput.Status
 		logInput.DurationMs = time.Since(startedAt).Milliseconds()
@@ -104,15 +95,15 @@ func CreateWorkflowTask(ctx context.Context, user model.AuthUser, input Workflow
 		}
 		return WorkflowTaskResult{}, safeMessageError{message: err.Error()}
 	}
-	if err := markRunningHubTask(user.ID, taskID, upstreamID); err != nil {
+	if err := markRunningHubTask(workspaceID, taskID, upstreamID); err != nil {
 		return WorkflowTaskResult{}, errors.Join(err, finishWorkflowTask(taskID, "failed", nil, err.Error(), nil))
 	}
 	WakeVideoTaskPoller()
 	return WorkflowTaskResult{ID: taskID, Status: "running", Progress: 10}, nil
 }
 
-func GetWorkflowTask(ctx context.Context, user model.AuthUser, taskID string) (WorkflowTaskResult, error) {
-	snapshot, found, err := workflowTaskSnapshot(user.ID, taskID)
+func GetWorkflowTask(ctx context.Context, workspaceID string, taskID string) (WorkflowTaskResult, error) {
+	snapshot, found, err := workflowTaskSnapshot(workspaceID, taskID)
 	if err != nil {
 		return WorkflowTaskResult{}, err
 	}
@@ -131,7 +122,7 @@ func GetWorkflowTask(ctx context.Context, user model.AuthUser, taskID string) (W
 			if err := finishWorkflowTask(taskID, "failed", nil, "工作流任务超过 1 小时仍未完成"); err != nil {
 				return WorkflowTaskResult{}, err
 			}
-			latest, _, err := workflowTaskSnapshot(user.ID, taskID)
+			latest, _, err := workflowTaskSnapshot(workspaceID, taskID)
 			return latest.result, err
 		}
 	}
@@ -171,7 +162,7 @@ func GetWorkflowTask(ctx context.Context, user model.AuthUser, taskID string) (W
 			return WorkflowTaskResult{ID: taskID, Status: "running", Progress: 30}, nil
 		}
 	}
-	latest, _, err := workflowTaskSnapshot(user.ID, taskID)
+	latest, _, err := workflowTaskSnapshot(workspaceID, taskID)
 	if err == nil && hasBridge && latest.result.Status == "succeeded" && len(latest.result.URLs) == 0 {
 		if urls, parseErr := workflowResultURLs(bridgeRequest.ResultJSON); parseErr == nil {
 			latest.result.URLs = urls
@@ -188,16 +179,16 @@ type workflowSnapshot struct {
 	log        AICallLogInput
 }
 
-func workflowTaskSnapshot(userID, taskID string) (workflowSnapshot, bool, error) {
+func workflowTaskSnapshot(workspaceID, taskID string) (workflowSnapshot, bool, error) {
 	switch {
 	case strings.HasPrefix(taskID, "wf-image-"):
-		task, found, err := repository.GetUserCanvasImageTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceCanvasImageTask(workspaceID, taskID)
 		if !found || err != nil {
 			return workflowSnapshot{}, found, err
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: append([]string{}, task.ImageURLs...), Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{UserDisplayName: task.UserDisplayName, Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.UserChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: append([]string{}, task.ImageURLs...), Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
 	case strings.HasPrefix(taskID, "wf-video-"):
-		task, found, err := repository.GetUserVideoTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceVideoTask(workspaceID, taskID)
 		if !found || err != nil {
 			return workflowSnapshot{}, found, err
 		}
@@ -205,9 +196,9 @@ func workflowTaskSnapshot(userID, taskID string) (workflowSnapshot, bool, error)
 		if task.VideoURL != "" {
 			urls = append(urls, task.VideoURL)
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: task.UpstreamTaskID, createdAt: task.CreatedAt, log: AICallLogInput{UserDisplayName: task.UserDisplayName, Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.UserChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: task.UpstreamTaskID, createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
 	case strings.HasPrefix(taskID, "wf-audio-"):
-		task, found, err := repository.GetUserCanvasAudioTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceCanvasAudioTask(workspaceID, taskID)
 		if !found || err != nil {
 			return workflowSnapshot{}, found, err
 		}
@@ -215,7 +206,7 @@ func workflowTaskSnapshot(userID, taskID string) (workflowSnapshot, bool, error)
 		if task.AudioURL != "" {
 			urls = append(urls, task.AudioURL)
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{UserDisplayName: task.UserDisplayName, Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.UserChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
 	}
 	return workflowSnapshot{}, false, nil
 }
@@ -233,23 +224,23 @@ func workflowPublicStatus(status string) string {
 	return "queued"
 }
 
-func workflowTaskID(userID, capability, clientID string) string {
+func workflowTaskID(workspaceID, capability, clientID string) string {
 	if strings.TrimSpace(clientID) != "" {
-		return "wf-" + capability + "-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(userID+":"+clientID)).String()
+		return "wf-" + capability + "-" + uuid.NewSHA1(uuid.NameSpaceOID, []byte(workspaceID+":"+clientID)).String()
 	}
 	return "wf-" + capability + "-" + uuid.NewString()
 }
 
-func workflowBillingName(ref WorkflowRef) string {
+func workflowEntryName(ref WorkflowRef) string {
 	return fmt.Sprintf("workflow:%s:%s:%s:%s", ref.Scope, ref.ChannelID, ref.Kind, ref.WorkflowID)
 }
 
-func createWorkflowTaskRecord(user model.AuthUser, id string, resolved ResolvedWorkflow, input WorkflowRunInput, ref, billingName string, credits float64) error {
-	channelID, userChannelID := "", ""
+func createWorkflowTaskRecord(workspaceID string, id string, resolved ResolvedWorkflow, input WorkflowRunInput, ref string) error {
+	channelID, localChannelID := "", ""
 	if input.Ref.Scope == "system" {
 		channelID = input.Ref.ChannelID
 	} else {
-		userChannelID = input.Ref.ChannelID
+		localChannelID = input.Ref.ChannelID
 	}
 	switch resolved.Entry.Capability {
 	case "image":
@@ -257,27 +248,27 @@ func createWorkflowTaskRecord(user model.AuthUser, id string, resolved ResolvedW
 		if input.Source == "image-workbench" || input.Source == "canvas" {
 			source = input.Source
 		}
-		_, err := CreateCanvasImageTask(CanvasImageTaskCreateInput{UserID: user.ID, UserDisplayName: user.DisplayName, Source: source, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, UserChannelID: userChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Credits: credits, BillingName: billingName, BillingPath: "/api/v1/workflow-tasks", Prompt: input.Prompt})
+		_, err := CreateCanvasImageTask(CanvasImageTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
 		return err
 	case "video":
 		source := "workflow"
 		if input.Source == "video-workbench" || input.Source == "canvas" {
 			source = input.Source
 		}
-		_, err := CreateVideoTask(VideoTaskCreateInput{UserID: user.ID, UserDisplayName: user.DisplayName, Source: source, SourceID: input.SourceID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, UserChannelID: userChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Credits: credits, BillingName: billingName, BillingPath: "/api/v1/workflow-tasks", Status: "queued", Seconds: input.VideoSeconds, Size: input.Size})
+		_, err := CreateVideoTask(VideoTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Status: "queued", Seconds: input.VideoSeconds, Size: input.Size})
 		return err
 	case "audio":
-		_, err := CreateCanvasAudioTask(CanvasAudioTaskCreateInput{UserID: user.ID, UserDisplayName: user.DisplayName, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, UserChannelID: userChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Credits: credits, BillingName: billingName, BillingPath: "/api/v1/workflow-tasks", Prompt: input.Prompt})
+		_, err := CreateCanvasAudioTask(CanvasAudioTaskCreateInput{WorkspaceID: workspaceID, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
 		return err
 	}
 	return errors.New("工作流用途无效")
 }
 
-func markRunningHubTask(userID, taskID, upstreamID string) error {
+func markRunningHubTask(workspaceID, taskID, upstreamID string) error {
 	encoded, _ := json.Marshal(map[string]string{"upstreamTaskId": upstreamID})
 	switch {
 	case strings.HasPrefix(taskID, "wf-image-"):
-		task, found, err := repository.GetUserCanvasImageTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceCanvasImageTask(workspaceID, taskID)
 		if err != nil || !found {
 			return errors.New("图片任务不存在")
 		}
@@ -285,7 +276,7 @@ func markRunningHubTask(userID, taskID, upstreamID string) error {
 		_, err = SaveCanvasImageTask(task)
 		return err
 	case strings.HasPrefix(taskID, "wf-video-"):
-		task, found, err := repository.GetUserVideoTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceVideoTask(workspaceID, taskID)
 		if err != nil || !found {
 			return errors.New("视频任务不存在")
 		}
@@ -293,7 +284,7 @@ func markRunningHubTask(userID, taskID, upstreamID string) error {
 		_, err = repository.SaveVideoTask(task)
 		return err
 	case strings.HasPrefix(taskID, "wf-audio-"):
-		task, found, err := repository.GetUserCanvasAudioTask(userID, taskID)
+		task, found, err := repository.GetWorkspaceCanvasAudioTask(workspaceID, taskID)
 		if err != nil || !found {
 			return errors.New("音频任务不存在")
 		}
@@ -327,7 +318,7 @@ func pollRunningHubWorkflowTask(task repository.RunningHubWorkflowTask) error {
 	if err := json.Unmarshal([]byte(task.WorkflowRef), &ref); err != nil {
 		return finishWorkflowTask(task.ID, "failed", nil, "工作流任务配置无效")
 	}
-	resolved, err := resolveWorkflowForUser(model.AuthUser{ID: task.UserID}, ref, false)
+	resolved, err := resolveWorkflowForWorkspace(task.WorkspaceID, ref, false)
 	if err != nil {
 		return finishWorkflowTask(task.ID, "failed", nil, err.Error())
 	}
@@ -351,22 +342,7 @@ func finishWorkflowTask(taskID, status string, urls []string, failure string, ca
 	if !preserveDataURLs && len(urls) > 0 && strings.HasPrefix(urls[0], "data:") {
 		urls = nil
 	}
-	var newRefundLog func(string) model.CreditLog
-	if status == "failed" {
-		newRefundLog = func(rawRef string) model.CreditLog {
-			var ref WorkflowRef
-			_ = json.Unmarshal([]byte(rawRef), &ref)
-			modelName := workflowBillingName(ref)
-			extra, _ := json.Marshal(map[string]string{"model": modelName, "path": "/api/v1/workflow-tasks"})
-			return model.CreditLog{
-				ID:        newID("credit"),
-				Remark:    "模型调用失败返还 " + modelName,
-				Extra:     string(extra),
-				CreatedAt: now(),
-			}
-		}
-	}
-	changed, _, rawRef, userID, err := repository.CompleteWorkflowTask(taskID, status, urls, failure, newRefundLog)
+	changed, rawRef, workspaceID, err := repository.CompleteWorkflowTask(taskID, status, urls, failure)
 	finishedAt := time.Now()
 	if err != nil || !changed {
 		return err
@@ -376,12 +352,12 @@ func finishWorkflowTask(taskID, status string, urls []string, failure string, ca
 	if len(captures) > 0 && captures[0] == nil {
 		return nil
 	}
-	logInput := AICallLogInput{UserID: userID, Endpoint: "/api/v1/workflow-tasks/" + taskID, Method: "TASK", ChannelID: ref.ChannelID, RequestBody: rawRef, Status: 200}
+	logInput := AICallLogInput{WorkspaceID: workspaceID, Endpoint: "/api/v1/workflow-tasks/" + taskID, Method: "TASK", ChannelID: ref.ChannelID, RequestBody: rawRef, Status: 200}
 	if status == "failed" {
 		logInput.Status, logInput.Error = 0, failure
 	}
-	if snapshot, found, lookupErr := workflowTaskSnapshot(userID, taskID); lookupErr == nil && found {
-		logInput.UserDisplayName, logInput.Model, logInput.ChannelName = snapshot.log.UserDisplayName, snapshot.log.Model, snapshot.log.ChannelName
+	if snapshot, found, lookupErr := workflowTaskSnapshot(workspaceID, taskID); lookupErr == nil && found {
+		logInput.Model, logInput.ChannelName = snapshot.log.Model, snapshot.log.ChannelName
 		if createdAt, parseErr := time.Parse(time.RFC3339Nano, snapshot.createdAt); parseErr == nil {
 			logInput.DurationMs = max(0, finishedAt.Sub(createdAt).Milliseconds())
 		}

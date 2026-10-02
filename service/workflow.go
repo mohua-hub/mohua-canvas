@@ -13,7 +13,7 @@ import (
 
 type CreativeWorkflowPayload struct {
 	ID          string          `json:"id"`
-	OwnerUserID string          `json:"ownerUserId,omitempty"`
+	OwnerWorkspaceID string          `json:"ownerWorkspaceId,omitempty"`
 	Scope       string          `json:"scope"`
 	Name        string          `json:"name"`
 	Category    string          `json:"category"`
@@ -44,26 +44,20 @@ type WorkflowAgentDraftResponse struct {
 }
 
 func ListCreativeWorkflows(ctx context.Context) ([]CreativeWorkflowPayload, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
-	records, err := repository.ListCreativeWorkflows(user.ID)
+	workspaceID := WorkspaceID
+	records, err := repository.ListCreativeWorkflows(workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	result := make([]CreativeWorkflowPayload, 0, len(records))
 	for _, record := range records {
-		result = append(result, creativeWorkflowPayload(record, user.ID))
+		result = append(result, creativeWorkflowPayload(record, workspaceID))
 	}
 	return result, nil
 }
 
 func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) (CreativeWorkflowPayload, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return CreativeWorkflowPayload{}, errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 	scope := strings.ToLower(strings.TrimSpace(payload.Scope))
 	if scope != "public" {
 		scope = "private"
@@ -77,7 +71,7 @@ func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) 
 			return CreativeWorkflowPayload{}, err
 		}
 		if found {
-			if record.OwnerUserID != user.ID {
+			if record.OwnerWorkspaceID != workspaceID {
 				return CreativeWorkflowPayload{}, errors.New("只能编辑自己的工作流")
 			}
 			existing = record
@@ -92,7 +86,7 @@ func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) 
 	}
 	record := model.CreativeWorkflow{
 		ID:          id,
-		OwnerUserID: user.ID,
+		OwnerWorkspaceID: workspaceID,
 		Scope:       scope,
 		Name:        strings.TrimSpace(payload.Name),
 		Category:    strings.TrimSpace(payload.Category),
@@ -112,14 +106,11 @@ func SaveCreativeWorkflow(ctx context.Context, payload CreativeWorkflowPayload) 
 	if err != nil {
 		return CreativeWorkflowPayload{}, err
 	}
-	return creativeWorkflowPayload(saved, user.ID), nil
+	return creativeWorkflowPayload(saved, workspaceID), nil
 }
 
 func DeleteCreativeWorkflow(ctx context.Context, id string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 	record, found, err := repository.GetCreativeWorkflow(id)
 	if err != nil {
 		return err
@@ -127,20 +118,20 @@ func DeleteCreativeWorkflow(ctx context.Context, id string) error {
 	if !found {
 		return nil
 	}
-	if record.OwnerUserID != user.ID {
+	if record.OwnerWorkspaceID != workspaceID {
 		return errors.New("只能删除自己的工作流")
 	}
 	return repository.DeleteCreativeWorkflow(id)
 }
 
-func creativeWorkflowPayload(record model.CreativeWorkflow, currentUserID string) CreativeWorkflowPayload {
+func creativeWorkflowPayload(record model.CreativeWorkflow, currentWorkspaceID string) CreativeWorkflowPayload {
 	data := json.RawMessage(record.Data)
 	if len(data) == 0 {
 		data = json.RawMessage(`{}`)
 	}
 	return CreativeWorkflowPayload{
 		ID:          record.ID,
-		OwnerUserID: record.OwnerUserID,
+		OwnerWorkspaceID: record.OwnerWorkspaceID,
 		Scope:       record.Scope,
 		Name:        record.Name,
 		Category:    record.Category,
@@ -149,6 +140,6 @@ func creativeWorkflowPayload(record model.CreativeWorkflow, currentUserID string
 		CreatedAt:   record.CreatedAt,
 		UpdatedAt:   record.UpdatedAt,
 		LastRunAt:   record.LastRunAt,
-		Editable:    record.OwnerUserID == currentUserID,
+		Editable:    record.OwnerWorkspaceID == currentWorkspaceID,
 	}
 }

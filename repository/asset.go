@@ -79,11 +79,7 @@ func DeleteAsset(id string) error {
 func applyAssetFilters(tx *gorm.DB, q model.Query) *gorm.DB {
 	if q.Keyword != "" {
 		like := "%" + q.Keyword + "%"
-		tagsColumn := "CAST(tags AS TEXT)"
-		if tx.Dialector.Name() == "mysql" {
-			tagsColumn = "CAST(tags AS CHAR)"
-		}
-		tx = tx.Where("title LIKE ? OR description LIKE ? OR content LIKE ? OR category LIKE ? OR "+tagsColumn+" LIKE ?", like, like, like, like, like)
+		tx = tx.Where("title LIKE ? OR description LIKE ? OR content LIKE ? OR category LIKE ? OR CAST(tags AS TEXT) LIKE ?", like, like, like, like, like)
 	}
 	if isActiveAssetOption(q.Type) {
 		tx = tx.Where("type = ?", q.Type)
@@ -111,7 +107,7 @@ func applyAssetTagsFilter(tx *gorm.DB, tags []string) *gorm.DB {
 	}
 	condition := tx.Session(&gorm.Session{NewDB: true})
 	for _, tag := range tags {
-		condition = condition.Or(assetJSONTagsContains(tx), tag)
+		condition = condition.Or("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)", tag)
 	}
 	return tx.Where(condition)
 }
@@ -128,18 +124,6 @@ func assetTagsFromItems(items []model.Asset) []string {
 		}
 	}
 	return tags
-}
-
-// assetJSONTagsContains 返回素材 tags 的 JSON 包含条件。
-func assetJSONTagsContains(tx *gorm.DB) string {
-	switch tx.Dialector.Name() {
-	case "mysql":
-		return "JSON_CONTAINS(tags, JSON_QUOTE(?))"
-	case "postgres":
-		return "jsonb_exists(tags::jsonb, ?)"
-	default:
-		return "EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)"
-	}
 }
 
 // isActiveAssetOption 判断素材筛选项有效状态。

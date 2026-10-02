@@ -120,7 +120,7 @@ func TestModelProtocolProxyPreparationOrder(t *testing.T) {
 				path = resolveAIProxyPath(channel, test.model, test.endpoint)
 			}
 			// Exercise the pure stage extracted from proxyAIRequest, without its
-			// database selection, billing, upstream request or logging side effects.
+			// database selection, upstream request or logging side effects.
 			got, _, err := prepareAIProtocolRequest(aiProtocolRequest{
 				mode: test.mode, channel: channel, modelName: test.model,
 				endpoint: test.endpoint, path: path, contentType: "application/json", body: []byte(test.body),

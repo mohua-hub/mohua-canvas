@@ -15,10 +15,7 @@ import (
 
 func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftRequest) (WorkflowAgentDraftResponse, error) {
 	startedAt := time.Now()
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return WorkflowAgentDraftResponse{}, safeMessageError{message: "请先登录"}
-	}
+	workspaceID := WorkspaceID
 	prompt := strings.TrimSpace(request.Prompt)
 	if prompt == "" {
 		return WorkflowAgentDraftResponse{}, safeMessageError{message: "请输入工作流需求"}
@@ -28,25 +25,9 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	if err != nil {
 		return WorkflowAgentDraftResponse{}, err
 	}
-	if request.ChannelMode != "local" && !UserCanUseRemoteModelChannel(user) {
-		return WorkflowAgentDraftResponse{}, safeMessageError{message: "当前账号未开放云端渠道"}
-	}
 	channel, err := workflowDraftChannel(request, modelName)
 	if err != nil {
 		return WorkflowAgentDraftResponse{}, err
-	}
-
-	credits, _ := ModelCost(modelName)
-	chargedCredits := request.ChannelMode != "local"
-	if chargedCredits {
-		if err := ConsumeUserCredits(user.ID, modelName, credits, "/workflows/agent-draft"); err != nil {
-			return WorkflowAgentDraftResponse{}, err
-		}
-	}
-	refundCredits := func() {
-		if chargedCredits {
-			_ = RefundUserCredits(user.ID, modelName, credits, "/workflows/agent-draft")
-		}
 	}
 
 	messages := workflowAgentMessages(prompt, request.References)
@@ -72,7 +53,6 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 		bytes.NewReader(body),
 	)
 	if err != nil {
-		refundCredits()
 		return WorkflowAgentDraftResponse{}, err
 	}
 	SetModelChannelAuthHeader(httpRequest, channel)
@@ -81,10 +61,9 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	client := &http.Client{Timeout: time.Duration(maxInt(channel.Timeout, 600)) * time.Second}
 	response, err := client.Do(httpRequest)
 	if err != nil {
-		refundCredits()
 		SaveAICallLog(AICallLogInput{
-			UserID:          user.ID,
-			UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+			WorkspaceID:          workspaceID,
+			
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -92,7 +71,6 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 			ChannelName:     channel.Name,
 			Status:          0,
 			DurationMs:      time.Since(startedAt).Milliseconds(),
-			Credits:         credits,
 			RequestBody:     requestLogBody,
 			Error:           err.Error(),
 		})
@@ -102,10 +80,9 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 
 	responseBody, _ := io.ReadAll(response.Body)
 	if response.StatusCode >= http.StatusBadRequest {
-		refundCredits()
 		SaveAICallLog(AICallLogInput{
-			UserID:          user.ID,
-			UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+			WorkspaceID:          workspaceID,
+			
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -113,7 +90,6 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 			ChannelName:     channel.Name,
 			Status:          response.StatusCode,
 			DurationMs:      time.Since(startedAt).Milliseconds(),
-			Credits:         credits,
 			RequestBody:     requestLogBody,
 			ResponseBody:    string(responseBody),
 			Error:           string(responseBody),
@@ -127,10 +103,9 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	}
 	draft, warnings, err := normalizeWorkflowDraft(content, request.Scope)
 	if err != nil {
-		refundCredits()
 		SaveAICallLog(AICallLogInput{
-			UserID:          user.ID,
-			UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+			WorkspaceID:          workspaceID,
+			
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -138,7 +113,6 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 			ChannelName:     channel.Name,
 			Status:          response.StatusCode,
 			DurationMs:      time.Since(startedAt).Milliseconds(),
-			Credits:         credits,
 			RequestBody:     requestLogBody,
 			ResponseBody:    string(responseBody),
 			Error:           err.Error(),
@@ -147,8 +121,8 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	}
 
 	SaveAICallLog(AICallLogInput{
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+		WorkspaceID:          workspaceID,
+		
 		Endpoint:        "/workflows/agent-draft",
 		Method:          http.MethodPost,
 		Model:           modelName,
@@ -156,7 +130,6 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 		ChannelName:     channel.Name,
 		Status:          response.StatusCode,
 		DurationMs:      time.Since(startedAt).Milliseconds(),
-		Credits:         credits,
 		RequestBody:     requestLogBody,
 		ResponseBody:    string(responseBody),
 	})

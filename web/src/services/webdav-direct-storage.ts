@@ -2,9 +2,9 @@
 
 import { nanoid } from "nanoid";
 
-import type { UserWebDAVStorageProvider } from "@/services/image-storage";
+import type { CustomWebDAVStorageProvider } from "@/services/image-storage";
 import { useConfigStore } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 const DIRECT_STORAGE_KEY_PREFIX = "server:webdav:";
 const directCapabilities = new Map<string, "supported" | "unavailable">();
@@ -45,30 +45,30 @@ export function directWebDAVObjectKey(storageKey: string) {
     return decodeURIComponent(storageKey.slice(DIRECT_STORAGE_KEY_PREFIX.length));
 }
 
-export function createDirectWebDAVObjectKey(provider: UserWebDAVStorageProvider, filename: string, owner: string) {
+export function createDirectWebDAVObjectKey(provider: CustomWebDAVStorageProvider, filename: string, owner: string) {
     const date = new Date().toISOString().slice(0, 10).split("-");
     const extension = filename.match(/\.[a-z0-9]{1,10}$/i)?.[0].toLowerCase() || "";
     return [provider.pathPrefix.replace(/^\/+|\/+$/g, "") || "canvas", owner, ...date, nanoid() + extension].join("/");
 }
 
-export async function persistDirectWebDAV(provider: UserWebDAVStorageProvider, blob: Blob, filename: string) {
-    const { token, user } = useUserStore.getState();
+export async function persistDirectWebDAV(provider: CustomWebDAVStorageProvider, blob: Blob, filename: string) {
+    const backendConnected = useBackendStore.getState().available;
     if (blob.type === "video/mp4" && !filename.endsWith(".mp4")) filename += ".mp4";
-    const objectKey = createDirectWebDAVObjectKey(provider, filename, token && user ? user.id : "anonymous");
+    const objectKey = createDirectWebDAVObjectKey(provider, filename, "default");
     try {
         await uploadDirectWebDAV(provider, objectKey, blob);
-        if (!token) {
+        if (!backendConnected) {
             return { url: "", storageKey: directWebDAVStorageKey(objectKey), bytes: blob.size, mimeType: blob.type || "application/octet-stream" };
         }
         try {
             const { registerDirectStorageObject } = await import("@/services/api/storage");
-            return await registerDirectStorageObject(token, { provider, objectKey, mimeType: blob.type || "application/octet-stream", bytes: blob.size });
+            return await registerDirectStorageObject({ provider, objectKey, mimeType: blob.type || "application/octet-stream", bytes: blob.size });
         } catch (error) {
             await deleteDirectWebDAV(provider, objectKey).catch(() => undefined);
             throw error;
         }
     } catch (error) {
-        if (token && isWebDAVDirectUnavailable(error)) {
+        if (backendConnected && isWebDAVDirectUnavailable(error)) {
             if (!useConfigStore.getState().config.syncWebDAVStorageConfig) {
                 throw new WebDAVDirectUnavailableError("当前 WebDAV 不允许浏览器直连，请先开启 WebDAV 自动同步");
             }
@@ -78,20 +78,20 @@ export async function persistDirectWebDAV(provider: UserWebDAVStorageProvider, b
     }
 }
 
-export async function deletePersistedDirectWebDAV(provider: UserWebDAVStorageProvider, storageKey: string) {
+export async function deletePersistedDirectWebDAV(provider: CustomWebDAVStorageProvider, storageKey: string) {
     if (isDirectWebDAVStorageKey(storageKey)) {
         await deleteDirectWebDAV(provider, directWebDAVObjectKey(storageKey));
         return true;
     }
-    const token = useUserStore.getState().token;
-    if (!token || !storageKey.startsWith("server:")) return false;
+    const backendConnected = useBackendStore.getState().available;
+    if (!backendConnected || !storageKey.startsWith("server:")) return false;
     const id = storageKey.slice("server:".length);
     const { deleteDirectStorageObjectRecord, getStorageObjectInfo } = await import("@/services/api/storage");
     const info = await getStorageObjectInfo(id).catch(() => null);
     if (!info?.direct) return false;
     try {
         await deleteDirectWebDAV(provider, info.objectKey);
-        await deleteDirectStorageObjectRecord(token, id);
+        await deleteDirectStorageObjectRecord(id);
         return true;
     } catch (error) {
         if (isWebDAVDirectUnavailable(error)) return false;
@@ -99,7 +99,7 @@ export async function deletePersistedDirectWebDAV(provider: UserWebDAVStoragePro
     }
 }
 
-async function uploadDirectWebDAV(provider: UserWebDAVStorageProvider, objectKey: string, blob: Blob) {
+async function uploadDirectWebDAV(provider: CustomWebDAVStorageProvider, objectKey: string, blob: Blob) {
     const directory = objectKey.slice(0, objectKey.lastIndexOf("/"));
     if (directory) await ensureDirectWebDAVDirectory(provider, directory);
     const response = await directWebDAVFetch(provider, objectKey, {
@@ -114,7 +114,7 @@ async function uploadDirectWebDAV(provider: UserWebDAVStorageProvider, objectKey
     await response.body?.cancel();
 }
 
-export async function deleteDirectWebDAV(provider: UserWebDAVStorageProvider, objectKey: string) {
+export async function deleteDirectWebDAV(provider: CustomWebDAVStorageProvider, objectKey: string) {
     const response = await directWebDAVFetch(provider, objectKey, { method: "DELETE" });
     if (!response.ok && response.status !== 404) {
         await response.body?.cancel();
@@ -123,7 +123,7 @@ export async function deleteDirectWebDAV(provider: UserWebDAVStorageProvider, ob
     await response.body?.cancel();
 }
 
-export async function readDirectWebDAV(provider: UserWebDAVStorageProvider, objectKey: string, mimeType = "application/octet-stream") {
+export async function readDirectWebDAV(provider: CustomWebDAVStorageProvider, objectKey: string, mimeType = "application/octet-stream") {
     const response = await directWebDAVFetch(provider, objectKey, { method: "GET" });
     if (!response.ok) {
         await response.body?.cancel();
@@ -132,7 +132,7 @@ export async function readDirectWebDAV(provider: UserWebDAVStorageProvider, obje
     return new Blob([await response.arrayBuffer()], { type: mimeType });
 }
 
-export async function directWebDAVMediaUrl(provider: UserWebDAVStorageProvider, objectKey: string) {
+export async function directWebDAVMediaUrl(provider: CustomWebDAVStorageProvider, objectKey: string) {
     await ensureRangeSupport(provider, objectKey);
     const registration = await ensureMediaServiceWorker();
     const key = providerKey(provider);
@@ -147,7 +147,7 @@ export async function directWebDAVMediaUrl(provider: UserWebDAVStorageProvider, 
     return `/webdav-media/${encodeURIComponent(configId)}/${encodeURIComponent(objectKey)}`;
 }
 
-async function directWebDAVFetch(provider: UserWebDAVStorageProvider, objectKey: string, init: RequestInit) {
+async function directWebDAVFetch(provider: CustomWebDAVStorageProvider, objectKey: string, init: RequestInit) {
     const key = providerKey(provider);
     if (directCapabilities.get(key) === "unavailable") throw new WebDAVDirectUnavailableError();
     const headers = new Headers(init.headers);
@@ -162,7 +162,7 @@ async function directWebDAVFetch(provider: UserWebDAVStorageProvider, objectKey:
     }
 }
 
-async function ensureDirectWebDAVDirectory(provider: UserWebDAVStorageProvider, directory: string) {
+async function ensureDirectWebDAVDirectory(provider: CustomWebDAVStorageProvider, directory: string) {
     const parts = directory.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
     let current = "";
     for (const part of parts) {
@@ -179,7 +179,7 @@ async function ensureDirectWebDAVDirectory(provider: UserWebDAVStorageProvider, 
     }
 }
 
-async function directWebDAVDirectoryExists(provider: UserWebDAVStorageProvider, directory: string) {
+async function directWebDAVDirectoryExists(provider: CustomWebDAVStorageProvider, directory: string) {
     const response = await directWebDAVFetch(provider, directory, { method: "PROPFIND", headers: { Depth: "0" } });
     const exists = response.ok || response.status === 207;
     await response.body?.cancel();
@@ -200,7 +200,7 @@ function webDAVResponseError(response: Response, message: string) {
     return Object.assign(new Error(`${message}：${detail}`), { status: response.status });
 }
 
-async function ensureRangeSupport(provider: UserWebDAVStorageProvider, objectKey: string) {
+async function ensureRangeSupport(provider: CustomWebDAVStorageProvider, objectKey: string) {
     const key = providerKey(provider);
     const cached = rangeCapabilities.get(key);
     if (cached === "supported") return;
@@ -259,11 +259,11 @@ async function ensureMediaServiceWorker() {
     return serviceWorkerPromise;
 }
 
-function providerKey(provider: UserWebDAVStorageProvider) {
+function providerKey(provider: CustomWebDAVStorageProvider) {
     return [provider.endpoint, provider.pathPrefix, provider.username, provider.password].join("\n");
 }
 
-function remoteURL(provider: UserWebDAVStorageProvider, objectKey: string) {
+function remoteURL(provider: CustomWebDAVStorageProvider, objectKey: string) {
     return provider.endpoint.replace(/\/+$/, "") + "/" + objectKey.split("/").map(encodeURIComponent).join("/");
 }
 

@@ -1,4 +1,4 @@
-import { Home, LogIn } from "lucide-react";
+import { Home, LayoutDashboard } from "lucide-react";
 import Link from "next/link";
 
 export default function NotFound() {
@@ -15,11 +15,11 @@ export default function NotFound() {
                             返回首页
                         </Link>
                         <Link
-                            href="/login"
+                            href="/canvas"
                             className="inline-flex h-10 items-center gap-2 rounded-lg border border-stone-200 bg-background px-4 text-sm font-medium text-stone-900 transition hover:bg-stone-100 dark:border-stone-800 dark:text-stone-100 dark:hover:bg-stone-800"
                         >
-                            <LogIn className="size-4" />
-                            去登录
+                            <LayoutDashboard className="size-4" />
+                            去画布
                         </Link>
                     </div>
                 </section>

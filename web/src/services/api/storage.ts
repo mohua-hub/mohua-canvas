@@ -1,5 +1,5 @@
 import { apiDelete, apiGet, apiPost } from "@/services/api/request";
-import type { UserWebDAVStorageProvider } from "@/services/image-storage";
+import type { CustomWebDAVStorageProvider } from "@/services/image-storage";
 
 export type RegisteredStorageObject = {
     url: string;
@@ -22,12 +22,11 @@ export function getStorageObjectInfo(id: string) {
 }
 
 export function registerDirectStorageObject(
-    token: string,
-    payload: { provider: UserWebDAVStorageProvider; objectKey: string; mimeType: string; bytes: number },
+    payload: { provider: CustomWebDAVStorageProvider; objectKey: string; mimeType: string; bytes: number },
 ) {
-    return apiPost<RegisteredStorageObject>("/api/v1/files/direct", payload, token);
+    return apiPost<RegisteredStorageObject>("/api/v1/files/direct", payload);
 }
 
-export function deleteDirectStorageObjectRecord(token: string, id: string) {
-    return apiDelete<boolean>(`/api/v1/files/${encodeURIComponent(id)}/record`, token);
+export function deleteDirectStorageObjectRecord(id: string) {
+    return apiDelete<boolean>(`/api/v1/files/${encodeURIComponent(id)}/record`);
 }

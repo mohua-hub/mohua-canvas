@@ -28,7 +28,7 @@ func SubmitRunningHubTask(ctx context.Context, channel model.ModelChannel, entry
 		return "", err
 	}
 	if strings.TrimSpace(channel.APIKey) == "" {
-		return "", errors.New("RunningHub 积分 API Key 未配置")
+		return "", errors.New("RunningHub API Key 未配置")
 	}
 	uploaded := map[string]string{}
 	nodeInfo := make([]map[string]string, 0, len(overrides))
@@ -54,7 +54,7 @@ func SubmitRunningHubTask(ctx context.Context, channel model.ModelChannel, entry
 				if err != nil {
 					return "", err
 				}
-				name, err = uploadRunningHubReference(ctx, root, channel.UploadAPIKey, source, capture)
+				name, err = uploadRunningHubReference(ctx, root, channel.APIKey, source, capture)
 				if err != nil {
 					return "", err
 				}
@@ -146,14 +146,14 @@ func PollRunningHubTask(ctx context.Context, channel model.ModelChannel, taskID 
 		requestCapture = &AICallLogInput{}
 	}
 	var response map[string]any
-	if err := runningHubRequest(ctx, root+"/task/openapi/outputs", map[string]any{"apiKey": channel.APIKey, "taskId": taskID}, &response, requestCapture); err != nil {
+	if err := runningHubRequestMethod(ctx, http.MethodPost, root+"/openapi/v2/query", nil, map[string]any{"taskId": taskID}, channel.APIKey, &response, requestCapture); err != nil {
 		if requestCapture.Status >= 400 && requestCapture.Status < 500 && requestCapture.Status != http.StatusTooManyRequests {
 			return nil, false, fmt.Errorf("%w: %v", errRunningHubTaskTerminal, err)
 		}
 		return nil, false, err
 	}
 	code, valid := runningHubResponseCode(response)
-	if !valid && len(runningHubOutputURLs(response["data"])) == 0 {
+	if !valid {
 		return nil, false, errors.New("RunningHub 查询响应缺少状态和产物")
 	}
 	switch code {
@@ -163,9 +163,9 @@ func PollRunningHubTask(ctx context.Context, channel model.ModelChannel, taskID 
 		return nil, false, nil
 	}
 	if code != 0 {
-		return nil, false, nil
+		return nil, false, fmt.Errorf("%w: %s", errRunningHubTaskTerminal, runningHubResponseMessage(response))
 	}
-	urls := runningHubOutputURLs(response["data"])
+	urls := runningHubOutputURLs(response["results"])
 	if len(urls) == 0 {
 		return nil, false, fmt.Errorf("%w: RunningHub 任务完成但没有返回产物", errRunningHubTaskTerminal)
 	}
@@ -292,27 +292,22 @@ func workflowMediaSource(input WorkflowRunInput, id string) (string, error) {
 
 func uploadRunningHubReference(ctx context.Context, root, apiKey, raw string, capture *AICallLogInput) (string, error) {
 	if capture != nil {
-		capture.Endpoint, capture.Method = root+"/task/openapi/upload", http.MethodPost
+		capture.Endpoint, capture.Method = root+"/openapi/v2/media/upload/binary", http.MethodPost
 		capture.Status, capture.RequestBody, capture.ResponseBody = 0, "", ""
 	}
 	if strings.TrimSpace(apiKey) == "" {
-		return "", errors.New("参考素材上传需要 RunningHub 企业级 API Key")
+		return "", errors.New("RunningHub API Key 未配置")
 	}
 	data, mimeType, err := readWorkflowMedia(ctx, raw)
 	if err != nil {
 		return "", err
 	}
-	if len(data) > 30<<20 {
-		return "", errors.New("RunningHub 上传素材不能超过 30MB")
-	}
 	if capture != nil {
-		logged, _ := json.Marshal(map[string]any{"fileType": "input", "contentType": mimeType, "size": len(data)})
+		logged, _ := json.Marshal(map[string]any{"contentType": mimeType, "size": len(data)})
 		capture.RequestBody = string(logged)
 	}
 	body := &bytes.Buffer{}
 	writer := multipart.NewWriter(body)
-	_ = writer.WriteField("apiKey", apiKey)
-	_ = writer.WriteField("fileType", "input")
 	header := make(textproto.MIMEHeader)
 	header.Set("Content-Disposition", mime.FormatMediaType("form-data", map[string]string{"name": "file", "filename": "workflow-input" + workflowExtension(mimeType)}))
 	header.Set("Content-Type", mimeType)
@@ -326,7 +321,7 @@ func uploadRunningHubReference(ctx context.Context, root, apiKey, raw string, ca
 	if err := writer.Close(); err != nil {
 		return "", err
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/task/openapi/upload", body)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, root+"/openapi/v2/media/upload/binary", body)
 	if err != nil {
 		return "", err
 	}

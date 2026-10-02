@@ -19,34 +19,26 @@ func StartVideoTaskPoller() {
 	service.StartVideoTaskPoller(pollVideoTaskFromUpstream)
 }
 
-func UserVideoTasks(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	tasks, err := service.ListUserVideoTasks(user.ID, "video-workbench", 100)
+func WorkspaceVideoTasks(w http.ResponseWriter, r *http.Request) {
+	workspaceID := service.WorkspaceID
+	tasks, err := service.ListWorkspaceVideoTasks(workspaceID, "video-workbench", 100)
 	if err != nil {
-		log.Printf("list video tasks failed: user=%s err=%v", user.ID, err)
+		log.Printf("list video tasks failed: workspace=%s err=%v", workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	OK(w, tasks)
 }
 
-func DeleteUserVideoTask(w http.ResponseWriter, r *http.Request, id string) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+func DeleteWorkspaceVideoTask(w http.ResponseWriter, r *http.Request, id string) {
+	workspaceID := service.WorkspaceID
 	id = strings.TrimSpace(id)
 	if id == "" {
 		Fail(w, "视频任务不存在")
 		return
 	}
-	if err := service.DeleteUserVideoTask(user.ID, id); err != nil {
-		log.Printf("delete video task failed: user=%s id=%s err=%v", user.ID, id, err)
+	if err := service.DeleteWorkspaceVideoTask(workspaceID, id); err != nil {
+		log.Printf("delete video task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -61,26 +53,12 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "AI 接口请求失败")
 		return
 	}
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	channel, userChannelID, err := selectAIRequestChannel(user, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(userModelChannelHeader), true)
+	workspaceID := service.WorkspaceID
+	channel, localChannelID, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), true)
 	if err != nil {
 		log.Printf("AI video select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
-	}
-	credits := 0.0
-	if userChannelID == "" {
-		credits, err = service.ModelCost(modelName)
-		if err != nil {
-			log.Printf("AI video read model cost failed: model=%s err=%v", modelName, err)
-			Fail(w, "AI 接口请求失败")
-			return
-		}
-		credits *= float64(readAIRequestCount(body, contentType, true))
 	}
 	upstreamPath := resolveAIProxyPath(channel, modelName, "/videos")
 	body, contentType, err = normalizeVideoCreateBody(body, contentType, modelName, channel, upstreamPath)
@@ -109,59 +87,40 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		Method:          http.MethodPost,
 		Model:           modelName,
 		Channel:         channel,
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
-		Credits:         credits,
+		WorkspaceID:          workspaceID,
+		
 		RequestBody:     summarizeAIRequest(body, contentType),
-	}
-	if credits > 0 {
-		if err := service.ConsumeUserCredits(user.ID, modelName, credits, upstreamPath); err != nil {
-			FailError(w, err)
-			return
-		}
 	}
 	payload, status, err := doAIRequest(request, channel)
 	if err != nil {
-		if credits > 0 {
-			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
-		}
 		saveAIProxyLog(logContext, 0, "", err.Error())
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	if status >= http.StatusBadRequest {
 		message := readUpstreamAIErrorMessage(payload, status)
-		if credits > 0 {
-			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
-		}
 		saveAIProxyLog(logContext, status, string(payload), strings.TrimSpace(string(payload)))
 		Fail(w, message)
 		return
 	}
 	transformed := transformVideoCreatePayload(payload, request, channel, modelName)
 	if message := readVideoCreateErrorMessage(payload, transformed, channel, modelName); message != "" {
-		if credits > 0 {
-			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
-		}
 		saveAIProxyLog(logContext, status, string(payload), message)
 		Fail(w, message)
 		return
 	}
 	parsed := parseVideoTaskPayload(transformed, modelName)
 	if parsed.UpstreamTaskID == "" && parsed.UpstreamVideoID == "" {
-		if credits > 0 {
-			refundVideoCredits(user.ID, modelName, credits, upstreamPath)
-		}
 		saveAIProxyLog(logContext, status, string(transformed), "视频接口没有返回任务 ID")
 		Fail(w, "视频接口没有返回任务 ID")
 		return
 	}
 	task, err := service.CreateVideoTask(service.VideoTaskCreateInput{
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+		WorkspaceID:          workspaceID,
+		
 		Model:           modelName,
 		ChannelID:       channel.ID,
-		UserChannelID:   userChannelID,
+		LocalChannelID:   localChannelID,
 		ChannelName:     channel.Name,
 		Source:          readVideoTaskSource(r),
 		SourceID:        readVideoTaskSourceID(r),
@@ -177,7 +136,6 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		ErrorDetail:     parsed.ErrorDetail,
 		RequestBody:     logContext.RequestBody,
 		ResponseBody:    string(transformed),
-		Credits:         credits,
 	})
 	if err != nil {
 		log.Printf("save video task failed: model=%s err=%v", modelName, err)
@@ -209,13 +167,10 @@ func isClientVideoTaskID(id string) bool {
 }
 
 func serveAIVideoTask(w http.ResponseWriter, r *http.Request, id string) bool {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		return false
-	}
-	task, found, err := service.GetUserVideoTask(user.ID, id)
+	workspaceID := service.WorkspaceID
+	task, found, err := service.GetWorkspaceVideoTask(workspaceID, id)
 	if err != nil {
-		log.Printf("read video task failed: id=%s user=%s err=%v", id, user.ID, err)
+		log.Printf("read video task failed: id=%s workspace=%s err=%v", id, workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return true
 	}
@@ -227,17 +182,14 @@ func serveAIVideoTask(w http.ResponseWriter, r *http.Request, id string) bool {
 }
 
 func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id string) bool {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		return false
-	}
-	task, found, err := service.GetUserVideoTask(user.ID, strings.TrimSpace(id))
+	workspaceID := service.WorkspaceID
+	task, found, err := service.GetWorkspaceVideoTask(workspaceID, strings.TrimSpace(id))
 	if err != nil || !found {
 		return false
 	}
 	var channel model.ModelChannel
-	if strings.TrimSpace(task.UserChannelID) != "" {
-		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
+	if strings.TrimSpace(task.LocalChannelID) != "" {
+		channel, err = service.SelectLocalModelChannelForModel(task.WorkspaceID, task.Model, task.LocalChannelID)
 	} else {
 		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	}
@@ -275,8 +227,8 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 func pollVideoTaskFromUpstream(task model.VideoTask) (service.VideoTaskPollUpdate, error) {
 	var channel model.ModelChannel
 	var err error
-	if strings.TrimSpace(task.UserChannelID) != "" {
-		channel, err = service.SelectUserLocalModelChannelForModel(task.UserID, task.Model, task.UserChannelID)
+	if strings.TrimSpace(task.LocalChannelID) != "" {
+		channel, err = service.SelectLocalModelChannelForModel(task.WorkspaceID, task.Model, task.LocalChannelID)
 	} else {
 		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	}
@@ -307,8 +259,8 @@ func pollVideoTaskFromUpstream(task model.VideoTask) (service.VideoTaskPollUpdat
 		Method:          http.MethodGet,
 		Model:           task.Model,
 		Channel:         channel,
-		UserID:          task.UserID,
-		UserDisplayName: task.UserDisplayName,
+		WorkspaceID:          task.WorkspaceID,
+		
 		RequestBody:     fmt.Sprintf(`{"taskId":%q}`, pollID),
 	}
 	payload, status, err := doAIRequest(request, channel)
@@ -598,8 +550,3 @@ func findFirstHTTPURL(value any) string {
 	return ""
 }
 
-func refundVideoCredits(userID string, modelName string, credits float64, endpoint string) {
-	if err := service.RefundUserCredits(userID, modelName, credits, endpoint); err != nil {
-		log.Printf("AI video refund credits failed: user=%s model=%s credits=%g err=%v", userID, modelName, credits, err)
-	}
-}

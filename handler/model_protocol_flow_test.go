@@ -34,7 +34,7 @@ func TestModelProtocolChannelFlow(t *testing.T) {
 		return
 	}
 	previousConfig := config.Cfg
-	config.Cfg = config.Config{StorageDriver: "sqlite", DatabaseDSN: ":memory:", AILogDir: t.TempDir()}
+	config.Cfg = config.Config{DatabaseDSN: ":memory:", AILogDir: t.TempDir()}
 	blockProtocolNetwork(t)
 	t.Cleanup(func() { config.Cfg = previousConfig })
 	db, err := repository.DB()
@@ -48,10 +48,7 @@ func TestModelProtocolChannelFlow(t *testing.T) {
 	connection.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = connection.Close() })
 
-	user := model.User{ID: "channel-flow-user", Username: "channel-flow-user", Role: model.UserRoleAdmin, Status: model.UserStatusActive}
-	if err := db.Create(&user).Error; err != nil {
-		t.Fatal(err)
-	}
+	workspaceID := service.WorkspaceID
 	// Representative channel contracts; model variants and precedence have separate fixtures.
 	tests := []struct {
 		name, protocol, modelName, endpoint, body, path, wantBody, payload, pollPath, pollPayload, wantResponse, message string
@@ -91,7 +88,7 @@ func TestModelProtocolChannelFlow(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				if err := db.Save(&model.UserConfig{UserID: user.ID, ModelConfig: string(body)}).Error; err != nil {
+				if err := db.Save(&model.WorkspaceConfig{WorkspaceID: workspaceID, ModelConfig: string(body)}).Error; err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -125,9 +122,8 @@ func TestModelProtocolChannelFlow(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, test.endpoint, strings.NewReader(test.body))
 			request.Header.Set("Content-Type", "application/json")
 			request.Header.Set("X-Model-Channel-ID", channel.ID)
-			request.Header.Set(userModelChannelHeader, localID)
+			request.Header.Set(workspaceModelChannelHeader, localID)
 			request.Header.Set("X-Client-Video-Task-ID", taskID)
-			request = request.WithContext(service.WithUser(request.Context(), model.PublicUser(user)))
 			writer := httptest.NewRecorder()
 			switch test.endpoint {
 			case "/chat/completions":
@@ -155,7 +151,7 @@ func TestModelProtocolChannelFlow(t *testing.T) {
 			case test.endpoint == "/videos":
 				envelope := testDirectRecord(t, protocolJSON(t, writer.Body.String()))
 				data := testDirectRecord(t, envelope["data"])
-				if envelope["code"] != float64(0) || data["id"] != taskID || data["task_id"] != "upstream-job" || data["model"] != test.modelName || data["channelId"] != channel.ID || data["userChannelId"] != localID || data["status"] != "processing" {
+				if envelope["code"] != float64(0) || data["id"] != taskID || data["task_id"] != "upstream-job" || data["model"] != test.modelName || data["channelId"] != channel.ID || data["localChannelId"] != localID || data["status"] != "processing" {
 					t.Fatalf("video response: %s", writer.Body)
 				}
 				if test.pollPath != "" {

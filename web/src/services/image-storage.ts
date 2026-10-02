@@ -4,9 +4,8 @@ import localforage from "localforage";
 
 import { nanoid } from "nanoid";
 import { readImageMeta } from "@/lib/image-utils";
-import { deleteAnonymousStorageFile, uploadAnonymousStorageFile } from "@/services/anonymous-storage";
 import { apiGet } from "@/services/api/request";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 export type UploadedImage = {
     url: string;
@@ -17,13 +16,13 @@ export type UploadedImage = {
     mimeType: string;
 };
 
-type UserStorageProviderBase = {
+type CustomStorageProviderBase = {
     enabled: boolean;
     name: string;
     endpoint: string;
 };
 
-export type UserS3StorageProvider = UserStorageProviderBase & {
+export type CustomS3StorageProvider = CustomStorageProviderBase & {
     type: "s3";
     region: string;
     bucket: string;
@@ -33,41 +32,40 @@ export type UserS3StorageProvider = UserStorageProviderBase & {
     pathPrefix: string;
 };
 
-export type UserWebDAVStorageProvider = UserStorageProviderBase & {
+export type CustomWebDAVStorageProvider = CustomStorageProviderBase & {
     type: "webdav";
     pathPrefix: string;
     username: string;
     password: string;
 };
 
-export type UserStorageProvider = UserS3StorageProvider | UserWebDAVStorageProvider;
+export type CustomStorageProvider = CustomS3StorageProvider | CustomWebDAVStorageProvider;
 
 type UploadImageOptions = {
     localOnly?: boolean;
-    token?: string;
 };
 
 export type StorageConfig = {
     mode: string;
-    allowUserProvider: boolean;
-    allowUserGlobalProvider: boolean;
+    allowCustomProvider: boolean;
+    useGlobalProvider: boolean;
     autoSyncAllAssets: boolean;
 };
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
 const objectUrls = new Map<string, string>();
 const serverUrls = new Map<string, string>();
-export const USER_STORAGE_PROVIDER_KEY = "infinite-canvas:user_storage_provider";
-export const USER_WEBDAV_STORAGE_PROVIDER_KEY = "infinite-canvas:user_webdav_storage_provider";
+export const CUSTOM_STORAGE_PROVIDER_KEY = "infinite-canvas:user_storage_provider";
+export const CUSTOM_WEBDAV_STORAGE_PROVIDER_KEY = "infinite-canvas:user_webdav_storage_provider";
 let storageConfigPromise: Promise<StorageConfig> | null = null;
 export const STORAGE_SYNC_FAILED_EVENT = "infinite-canvas:storage-sync-failed";
 const autoSyncRequests = new Map<string | Blob, Promise<{ storageKey: string } | null>>();
-let autoSyncOwner = "";
+let autoSyncOwner = false;
 
 export async function autoSyncToCloud<T extends { storageKey: string }>(source: string | Blob, upload: () => Promise<T | null>): Promise<T | null> {
     const config = await loadStorageConfig().catch(() => null);
-    if (!config?.autoSyncAllAssets || (!canUseGlobalStorage(config) && !(config.allowUserProvider && loadUserStorageProvider()))) return null;
-    const owner = useUserStore.getState().token;
+    if (!config?.autoSyncAllAssets || (!canUseGlobalStorage(config) && !(config.allowCustomProvider && loadCustomStorageProvider()))) return null;
+    const owner = useBackendStore.getState().available;
     if (autoSyncOwner !== owner) {
         autoSyncRequests.clear();
         autoSyncOwner = owner;
@@ -110,8 +108,7 @@ function reportStorageSyncFailure(error: unknown) {
 }
 
 export function canUseGlobalStorage(config: StorageConfig) {
-    const user = useUserStore.getState().user;
-    return config.mode === "server_sqlite_s3" && Boolean(user && user.role !== "guest" && (user.role === "admin" || config.allowUserGlobalProvider));
+    return config.mode === "server_sqlite_s3" && config.useGlobalProvider && useBackendStore.getState().available;
 }
 
 function isLocalNetworkHost(hostname: string) {
@@ -120,7 +117,6 @@ function isLocalNetworkHost(hostname: string) {
         host === "localhost" ||
         host.endsWith(".localhost") ||
         host.endsWith(".local") ||
-        host === "host.docker.internal" ||
         host === "::1"
     ) {
         return true;
@@ -188,7 +184,7 @@ export async function uploadImage(input: string | Blob, options: UploadImageOpti
         blob = url;
     }
     if (!options.localOnly) {
-        const serverUpload = await maybeUploadImageToServer(blob, options.token);
+        const serverUpload = await maybeUploadImageToServer(blob);
         if (serverUpload) return serverUpload;
     }
     const storageKey = `image:${nanoid()}`;
@@ -207,22 +203,18 @@ export async function uploadRemoteImageToServer(url: string, filename: string): 
     }
     const blob = await response.blob();
     const config = await loadStorageConfig();
-    const userProvider = config.allowUserProvider ? loadUserStorageProvider() : null;
+    const userProvider = config.allowCustomProvider ? loadCustomStorageProvider() : null;
     if (!canUseGlobalStorage(config) && !userProvider) throw new Error("服务端对象存储未启用");
-    const token = useUserStore.getState().token;
+    const backendConnected = useBackendStore.getState().available;
     if (userProvider?.type === "webdav") {
         const directUpload = await uploadWebDAVImageDirect(blob, filename || `image-${nanoid()}.${imageExtension(blob.type)}`, userProvider);
         if (directUpload) return directUpload;
     }
-    if (!token) {
-        if (!userProvider) throw new Error("服务端存储需要先登录");
-        const uploaded = await uploadAnonymousStorageFile<UploadedImage>(blob, filename || "image-" + nanoid() + "." + imageExtension(blob.type), toProviderPayload(userProvider));
-        return cacheAnonymousImage(uploaded, blob);
-    }
+    if (!backendConnected) throw new Error("后端服务未连接");
     const formData = new FormData();
     formData.append("file", blob, filename || "image-" + nanoid() + "." + imageExtension(blob.type));
     if (userProvider) formData.append("provider", JSON.stringify(toProviderPayload(userProvider)));
-    const uploadResponse = await fetch("/api/v1/files", { method: "POST", headers: { Authorization: "Bearer " + token }, body: formData });
+    const uploadResponse = await fetch("/api/v1/files", { method: "POST", body: formData });
     const payload = (await uploadResponse.json().catch(() => null)) as { code?: number; msg?: string; data?: UploadedImage } | null;
     if (!uploadResponse.ok || payload?.code !== 0 || !payload.data) throw new Error(payload?.msg || "服务端图片上传失败");
     const meta = await readImageMeta(payload.data.url);
@@ -239,7 +231,7 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
     if (storageKey.startsWith("server:webdav:")) {
         const localUrl = await resolveLocalImageUrl(storageKey).catch(() => "");
         if (localUrl) return localUrl;
-        const provider = loadUserStorageProvider();
+        const provider = loadCustomStorageProvider();
         if (provider?.type !== "webdav") return fallback;
         const direct = await import("@/services/webdav-direct-storage");
         const blob = await direct.readDirectWebDAV(provider, direct.directWebDAVObjectKey(storageKey));
@@ -255,14 +247,14 @@ export async function resolveImageUrl(storageKey?: string, fallback = "") {
         const { getStorageObjectInfo } = await import("@/services/api/storage");
         const info = await getStorageObjectInfo(id).catch(() => null);
         if (!info) return fallback;
-        const provider = loadUserStorageProvider();
+        const provider = loadCustomStorageProvider();
         if (info.direct && provider?.type === "webdav") {
             const direct = await import("@/services/webdav-direct-storage");
             try {
                 const blob = await direct.readDirectWebDAV(provider, info.objectKey, info.mimeType);
                 return setImageBlob(storageKey, blob);
             } catch (error) {
-                if (!useUserStore.getState().token || !direct.isWebDAVDirectUnavailable(error)) throw error;
+                if (!useBackendStore.getState().available || !direct.isWebDAVDirectUnavailable(error)) throw error;
             }
         }
         const url = info.publicUrl || `/api/files/${encodeURIComponent(id)}/content`;
@@ -282,36 +274,22 @@ async function resolveLocalImageUrl(storageKey: string) {
     return url;
 }
 
-async function maybeUploadImageToServer(blob: Blob, tokenOverride?: string): Promise<UploadedImage | null> {
+async function maybeUploadImageToServer(blob: Blob): Promise<UploadedImage | null> {
     const config = await loadStorageConfig().catch(() => null);
-    if (tokenOverride !== undefined && useUserStore.getState().token !== tokenOverride) {
-        throw new Error("登录状态已变化");
-    }
-    const userProvider = config?.allowUserProvider ? loadUserStorageProvider() : null;
+    const userProvider = config?.allowCustomProvider ? loadCustomStorageProvider() : null;
     const canUseGlobalProvider = config ? canUseGlobalStorage(config) : false;
     const useServerStorage = canUseGlobalProvider || Boolean(userProvider);
     if (!config || !useServerStorage) return null;
-    const token = tokenOverride === undefined ? useUserStore.getState().token : tokenOverride;
+    const backendConnected = useBackendStore.getState().available;
     if (userProvider?.type === "webdav") {
         const directUpload = await uploadWebDAVImageDirect(blob, `image-${nanoid()}.${imageExtension(blob.type)}`, userProvider);
         if (directUpload) return directUpload;
     }
-    if (!token) {
-        if (!userProvider) {
-            if (canUseGlobalProvider) throw new Error("服务端存储需要先登录");
-            return null;
-        }
-        try {
-            const uploaded = await uploadAnonymousStorageFile<UploadedImage>(blob, `image-${nanoid()}.${imageExtension(blob.type)}`, toProviderPayload(userProvider));
-            return cacheAnonymousImage(uploaded, blob);
-        } catch {
-            return null;
-        }
-    }
+    if (!backendConnected) return null;
     const formData = new FormData();
     formData.append("file", blob, `image-${nanoid()}.${imageExtension(blob.type)}`);
     if (userProvider) formData.append("provider", JSON.stringify(toProviderPayload(userProvider)));
-    const response = await fetch("/api/v1/files", { method: "POST", headers: { Authorization: `Bearer ${token}` }, body: formData });
+    const response = await fetch("/api/v1/files", { method: "POST", body: formData });
     const payload = (await response.json().catch(() => null)) as { code?: number; msg?: string; data?: UploadedImage } | null;
     if (!response.ok || payload?.code !== 0 || !payload.data) {
         if (!canUseGlobalProvider) return null;
@@ -322,7 +300,7 @@ async function maybeUploadImageToServer(blob: Blob, tokenOverride?: string): Pro
     return { ...payload.data, width: payload.data.width || meta.width, height: payload.data.height || meta.height, mimeType: payload.data.mimeType || blob.type || "image/png", bytes: payload.data.bytes || blob.size };
 }
 
-async function uploadWebDAVImageDirect(blob: Blob, filename: string, provider: UserWebDAVStorageProvider): Promise<UploadedImage | null> {
+async function uploadWebDAVImageDirect(blob: Blob, filename: string, provider: CustomWebDAVStorageProvider): Promise<UploadedImage | null> {
     const direct = await import("@/services/webdav-direct-storage");
     const uploaded = await direct.persistDirectWebDAV(provider, blob, filename);
     return uploaded ? cacheAnonymousImage({ ...uploaded, width: 0, height: 0 }, blob) : null;
@@ -363,7 +341,7 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
     const serverObjectId = image.storageKey?.startsWith("server:") ? image.storageKey.slice("server:".length) : "";
     const directGuestObject = image.storageKey?.startsWith("server:webdav:");
     const hasPersistedUrl = [image.dataUrl, image.url].some((url) => Boolean(url && !url.startsWith("blob:")));
-    const localUrl = !useUserStore.getState().token && serverObjectId && image.storageKey && !hasPersistedUrl
+    const localUrl = !useBackendStore.getState().available && serverObjectId && image.storageKey && !hasPersistedUrl
         ? await resolveLocalImageUrl(image.storageKey).catch(() => "")
         : "";
     const resolvedUrl = image.storageKey
@@ -395,7 +373,7 @@ export async function imageToDataUrl(image: { url?: string; dataUrl?: string; st
     throw new Error(lastError || "读取参考图失败");
 }
 
-export async function deleteStoredImages(keys: Iterable<string>, ownerToken?: string) {
+export async function deleteStoredImages(keys: Iterable<string>) {
     const { useAssetStore } = await import("@/stores/use-asset-store");
     const assetKeys = new Set(
         useAssetStore.getState().assets
@@ -404,7 +382,7 @@ export async function deleteStoredImages(keys: Iterable<string>, ownerToken?: st
     );
     await Promise.all(
         Array.from(new Set(keys)).map(async (key) => {
-            if (assetKeys.has(key) || (ownerToken !== undefined && useUserStore.getState().token !== ownerToken)) return;
+            if (assetKeys.has(key)) return;
             if (key.startsWith("server:")) {
                 await deleteServerImage(key);
                 return;
@@ -418,13 +396,13 @@ export async function deleteStoredImages(keys: Iterable<string>, ownerToken?: st
     );
 }
 
-export async function cleanupUnusedImages(usedData: unknown, storageKeys: ReadonlyMap<string, string> = new Map(), ownerToken?: string) {
+export async function cleanupUnusedImages(usedData: unknown, storageKeys: ReadonlyMap<string, string> = new Map()) {
     const usedKeys = collectImageStorageKeys(usedData, new Set(), storageKeys);
     const unused = Array.from(new Set(storageKeys.values())).filter((key) => key.startsWith("server:") && !usedKeys.has(key));
     await store.iterate((_value, key) => {
         if (!usedKeys.has(key)) unused.push(key);
     });
-    await deleteStoredImages(unused, ownerToken);
+    await deleteStoredImages(unused);
 }
 
 export function collectImageStorageKeys(value: unknown, keys = new Set<string>(), knownUrls?: ReadonlyMap<string, string>, capturedUrls?: Map<string, string>) {
@@ -448,7 +426,7 @@ export function collectImageStorageKeys(value: unknown, keys = new Set<string>()
     return keys;
 }
 
-export function defaultUserStorageProvider(): UserS3StorageProvider {
+export function defaultCustomStorageProvider(): CustomS3StorageProvider {
     return {
         enabled: false,
         name: "我的 R2",
@@ -463,7 +441,7 @@ export function defaultUserStorageProvider(): UserS3StorageProvider {
     };
 }
 
-export function defaultUserWebDAVStorageProvider(): UserWebDAVStorageProvider {
+export function defaultCustomWebDAVStorageProvider(): CustomWebDAVStorageProvider {
     return {
         enabled: false,
         name: "我的 WebDAV",
@@ -475,52 +453,52 @@ export function defaultUserWebDAVStorageProvider(): UserWebDAVStorageProvider {
     };
 }
 
-export function loadUserS3StorageProvider() {
+export function loadCustomS3StorageProvider() {
     if (typeof window === "undefined") return null;
     try {
-        const parsed = JSON.parse(window.localStorage.getItem(USER_STORAGE_PROVIDER_KEY) || "null") as UserS3StorageProvider | null;
-        return parsed ? { ...defaultUserStorageProvider(), ...parsed, type: "s3" as const } : null;
+        const parsed = JSON.parse(window.localStorage.getItem(CUSTOM_STORAGE_PROVIDER_KEY) || "null") as CustomS3StorageProvider | null;
+        return parsed ? { ...defaultCustomStorageProvider(), ...parsed, type: "s3" as const } : null;
     } catch {
         return null;
     }
 }
 
-export function loadUserWebDAVStorageProvider() {
+export function loadCustomWebDAVStorageProvider() {
     if (typeof window === "undefined") return null;
     try {
-        const parsed = JSON.parse(window.localStorage.getItem(USER_WEBDAV_STORAGE_PROVIDER_KEY) || "null") as UserWebDAVStorageProvider | null;
-        return parsed ? { ...defaultUserWebDAVStorageProvider(), ...parsed, type: "webdav" as const } : null;
+        const parsed = JSON.parse(window.localStorage.getItem(CUSTOM_WEBDAV_STORAGE_PROVIDER_KEY) || "null") as CustomWebDAVStorageProvider | null;
+        return parsed ? { ...defaultCustomWebDAVStorageProvider(), ...parsed, type: "webdav" as const } : null;
     } catch {
         return null;
     }
 }
 
-export function loadUserStorageProvider(): UserStorageProvider | null {
-    const s3 = loadUserS3StorageProvider();
-    const webdav = loadUserWebDAVStorageProvider();
+export function loadCustomStorageProvider(): CustomStorageProvider | null {
+    const s3 = loadCustomS3StorageProvider();
+    const webdav = loadCustomWebDAVStorageProvider();
     if (s3?.enabled && webdav?.enabled) return null;
     if (s3?.enabled && validS3Provider(s3)) return s3;
     if (webdav?.enabled && validWebDAVProvider(webdav)) return webdav;
     return null;
 }
 
-export function saveUserStorageProvider(provider: UserS3StorageProvider) {
-    window.localStorage.setItem(USER_STORAGE_PROVIDER_KEY, JSON.stringify({ ...defaultUserStorageProvider(), ...provider, type: "s3" }));
+export function saveCustomStorageProvider(provider: CustomS3StorageProvider) {
+    window.localStorage.setItem(CUSTOM_STORAGE_PROVIDER_KEY, JSON.stringify({ ...defaultCustomStorageProvider(), ...provider, type: "s3" }));
 }
 
-export function saveUserWebDAVStorageProvider(provider: UserWebDAVStorageProvider) {
-    window.localStorage.setItem(USER_WEBDAV_STORAGE_PROVIDER_KEY, JSON.stringify({ ...defaultUserWebDAVStorageProvider(), ...provider, type: "webdav" }));
+export function saveCustomWebDAVStorageProvider(provider: CustomWebDAVStorageProvider) {
+    window.localStorage.setItem(CUSTOM_WEBDAV_STORAGE_PROVIDER_KEY, JSON.stringify({ ...defaultCustomWebDAVStorageProvider(), ...provider, type: "webdav" }));
 }
 
-function validS3Provider(provider: UserS3StorageProvider) {
+function validS3Provider(provider: CustomS3StorageProvider) {
     return Boolean(provider.endpoint && provider.bucket && provider.accessKeyId && provider.secretAccessKey);
 }
 
-function validWebDAVProvider(provider: UserWebDAVStorageProvider) {
+function validWebDAVProvider(provider: CustomWebDAVStorageProvider) {
     return Boolean(provider.endpoint && provider.username && provider.password);
 }
 
-export function toProviderPayload(provider: UserStorageProvider) {
+export function toProviderPayload(provider: CustomStorageProvider) {
     if (provider.type === "webdav") {
         return {
             enabled: provider.enabled,
@@ -549,9 +527,9 @@ export function toProviderPayload(provider: UserStorageProvider) {
 async function deleteServerImage(storageKey: string) {
     const id = storageKey.slice("server:".length);
     if (!id) return;
-    const token = useUserStore.getState().token;
+    const backendConnected = useBackendStore.getState().available;
     serverUrls.delete(id);
-    const provider = loadUserStorageProvider();
+    const provider = loadCustomStorageProvider();
     if (storageKey.startsWith("server:webdav:") && provider?.type !== "webdav") return;
     if (provider?.type === "webdav") {
         const direct = await import("@/services/webdav-direct-storage");
@@ -564,19 +542,10 @@ async function deleteServerImage(storageKey: string) {
             return;
         }
     }
-    if (!token) {
-        if (!provider) return;
-        await deleteAnonymousStorageFile(id, toProviderPayload(provider));
-        clearAutoSyncCache(storageKey);
-        const url = objectUrls.get(storageKey);
-        if (url) URL.revokeObjectURL(url);
-        objectUrls.delete(storageKey);
-        await store.removeItem(storageKey);
-        return;
-    }
+    if (!backendConnected) return;
     const response = await fetch(`/api/v1/files/${encodeURIComponent(id)}`, {
         method: "DELETE",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", },
         body: JSON.stringify(provider ? { provider: toProviderPayload(provider) } : {}),
     });
     const payload = (await response.json().catch(() => null)) as { code?: number; msg?: string } | null;

@@ -15,11 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/robfig/cron/v3"
 	"github.com/tigerowo/infinite-canvas/config"
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
 	"github.com/google/uuid"
-	"github.com/robfig/cron/v3"
 )
 
 const (
@@ -42,8 +42,7 @@ var (
 )
 
 type AICallLogInput struct {
-	UserID          string `json:"userId"`
-	UserDisplayName string `json:"userDisplayName"`
+	WorkspaceID          string `json:"workspaceId"`
 	Endpoint        string `json:"endpoint"`
 	Method          string `json:"method"`
 	Model           string `json:"model"`
@@ -51,7 +50,6 @@ type AICallLogInput struct {
 	ChannelName     string `json:"channelName"`
 	Status          int    `json:"status"`
 	DurationMs      int64  `json:"durationMs"`
-	Credits         float64 `json:"credits"`
 	RequestBody     string `json:"requestBody"`
 	ResponseBody    string `json:"responseBody"`
 	Error           string `json:"error"`
@@ -62,8 +60,7 @@ func SaveAICallLog(input AICallLogInput) {
 	errorText := normalizeAICallErrorLog(input.Error, input.ResponseBody)
 	item := model.AICallLog{
 		ID:              uuid.NewString(),
-		UserID:          strings.TrimSpace(input.UserID),
-		UserDisplayName: strings.TrimSpace(input.UserDisplayName),
+		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
 		Endpoint:        strings.TrimSpace(input.Endpoint),
 		Method:          strings.TrimSpace(input.Method),
 		Model:           strings.TrimSpace(input.Model),
@@ -71,7 +68,6 @@ func SaveAICallLog(input AICallLogInput) {
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		Status:          input.Status,
 		DurationMs:      input.DurationMs,
-		Credits:         normalizeCredits(input.Credits),
 		RequestBody:     truncateLogText(input.RequestBody, aiLogRequestTextLimit),
 		ResponseBody:    responseBody,
 		Error:           truncateLogText(errorText, aiLogErrorTextLimit),
@@ -296,7 +292,7 @@ func startOfDay(value time.Time) time.Time {
 }
 
 func aiLogMatchesKeyword(item model.AICallLog, keyword string) bool {
-	fields := []string{item.UserID, item.UserDisplayName, item.Endpoint, item.Method, item.Model, item.ChannelID, item.ChannelName, item.RequestBody, item.ResponseBody, item.Error, strconv.Itoa(item.Status)}
+	fields := []string{item.WorkspaceID, item.Endpoint, item.Method, item.Model, item.ChannelID, item.ChannelName, item.RequestBody, item.ResponseBody, item.Error, strconv.Itoa(item.Status)}
 	for _, field := range fields {
 		if strings.Contains(strings.ToLower(field), keyword) {
 			return true

@@ -2,11 +2,10 @@ package model
 
 type VideoTask struct {
 	ID              string  `json:"id" gorm:"primaryKey"`
-	UserID          string  `json:"userId" gorm:"index"`
-	UserDisplayName string  `json:"userDisplayName"`
+	WorkspaceID          string  `json:"workspaceId" gorm:"index"`
 	Model           string  `json:"model" gorm:"index"`
 	ChannelID       string  `json:"channelId" gorm:"index"`
-	UserChannelID   string  `json:"userChannelId" gorm:"index"`
+	LocalChannelID   string  `json:"localChannelId" gorm:"index"`
 	ChannelName     string  `json:"channelName"`
 	WorkflowRef     string  `json:"workflowRef,omitempty" gorm:"type:text"`
 	Source          string  `json:"source" gorm:"index"`
@@ -23,7 +22,6 @@ type VideoTask struct {
 	RequestBody     string  `json:"requestBody" gorm:"type:text"`
 	ResponseBody    string  `json:"responseBody" gorm:"type:text"`
 	LastResponse    string  `json:"lastResponse" gorm:"type:text"`
-	Credits         float64 `json:"credits" gorm:"type:decimal(20,2)"`
 	CreatedAt       string  `json:"createdAt" gorm:"index;index:idx_video_tasks_status_created_at,priority:2"`
 	UpdatedAt       string  `json:"updatedAt" gorm:"index"`
 	StartedAt       string  `json:"startedAt"`

@@ -9,7 +9,7 @@ import { canvasThemes } from "@/lib/canvas-theme";
 import { AGENT_SKILL_CONTENT_MAX_LENGTH, type AgentSkill } from "@/services/api/agent-skills";
 import { useAgentSkillStore } from "@/stores/use-agent-skill-store";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { CanvasAgentSkillSelection } from "../types";
 
 type CanvasAgentSkillPopoverProps = {
@@ -20,7 +20,7 @@ type CanvasAgentSkillPopoverProps = {
 
 export function CanvasAgentSkillPopover({ selectedSkills, onSelect, onDeleteSelected }: CanvasAgentSkillPopoverProps) {
     const theme = canvasThemes[useThemeStore((state) => state.theme)];
-    const token = useUserStore((state) => state.token);
+    const backendConnected = useBackendStore((state) => state.available);
     const systemSkills = useAgentSkillStore((state) => state.systemSkills);
     const userSkills = useAgentSkillStore((state) => state.userSkills);
     const isLoading = useAgentSkillStore((state) => state.isLoading);
@@ -41,7 +41,7 @@ export function CanvasAgentSkillPopover({ selectedSkills, onSelect, onDeleteSele
 
     useEffect(() => {
         if (open) void loadSkills().catch((error) => message.error(error instanceof Error ? error.message : "Skill 加载失败"));
-    }, [loadSkills, message, open, token]);
+    }, [loadSkills, message, open, backendConnected]);
 
     const skills = useMemo(() => {
         const keyword = query.trim().toLowerCase();

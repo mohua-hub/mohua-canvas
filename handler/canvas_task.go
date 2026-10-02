@@ -27,11 +27,7 @@ import (
 )
 
 func CreateCanvasImageTask(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+	workspaceID := service.WorkspaceID
 	body, contentType, endpoint, source, nodeID, sourceID, clientTaskID, prompt, channelID, err := readCanvasTaskAIRequest(r, "/images/generations")
 	if err != nil {
 		Fail(w, err.Error())
@@ -43,27 +39,27 @@ func CreateCanvasImageTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelID = firstNonEmpty(channelID, r.Header.Get("X-Model-Channel-ID"))
-	userChannelID := r.Header.Get(userModelChannelHeader)
-	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(userChannelID) == "" {
+	localChannelID := r.Header.Get(workspaceModelChannelHeader)
+	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(localChannelID) == "" {
 		Fail(w, "缺少模型渠道")
 		return
 	}
-	channel, resolvedUserChannelID, err := selectAIRequestChannel(user, modelName, channelID, userChannelID, true)
+	channel, resolvedLocalChannelID, err := selectAIRequestChannel(workspaceID, modelName, channelID, localChannelID, true)
 	if err != nil {
 		log.Printf("canvas image task select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
 	}
 	task, err := service.CreateCanvasImageTask(service.CanvasImageTaskCreateInput{
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+		WorkspaceID:          workspaceID,
+		
 		Source:          source,
 		SourceID:        sourceID,
 		NodeID:          nodeID,
 		ClientTaskID:    clientTaskID,
 		Model:           modelName,
 		ChannelID:       channel.ID,
-		UserChannelID:   resolvedUserChannelID,
+		LocalChannelID:   resolvedLocalChannelID,
 		ChannelName:     channel.Name,
 		Prompt:          prompt,
 		GenerationType:  strings.TrimPrefix(endpoint, "/images/"),
@@ -72,23 +68,19 @@ func CreateCanvasImageTask(w http.ResponseWriter, r *http.Request) {
 		RequestBody:     summarizeAIRequest(body, contentType),
 	})
 	if err != nil {
-		log.Printf("create canvas image task failed: user=%s err=%v", user.ID, err)
+		log.Printf("create canvas image task failed: workspace=%s err=%v", workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	OK(w, service.CanvasImageTaskResponse(task))
-	go runCanvasImageTask(task, user, body, contentType, task.ChannelID, task.UserChannelID)
+	go runCanvasImageTask(task, workspaceID, body, contentType, task.ChannelID, task.LocalChannelID)
 }
 
 func GetCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	task, found, err := service.GetUserCanvasImageTask(user.ID, id)
+	workspaceID := service.WorkspaceID
+	task, found, err := service.GetWorkspaceCanvasImageTask(workspaceID, id)
 	if err != nil {
-		log.Printf("read canvas image task failed: user=%s id=%s err=%v", user.ID, id, err)
+		log.Printf("read canvas image task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -99,15 +91,11 @@ func GetCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, service.CanvasImageTaskResponse(task))
 }
 
-func UserCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	tasks, err := service.ListUserCanvasImageTasks(user.ID, readCanvasTaskSources(r), 100)
+func WorkspaceCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
+	workspaceID := service.WorkspaceID
+	tasks, err := service.ListWorkspaceCanvasImageTasks(workspaceID, readCanvasTaskSources(r), 100)
 	if err != nil {
-		log.Printf("list canvas image tasks failed: user=%s err=%v", user.ID, err)
+		log.Printf("list canvas image tasks failed: workspace=%s err=%v", workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -115,11 +103,7 @@ func UserCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func BatchCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+	workspaceID := service.WorkspaceID
 	var request struct {
 		IDs []string `json:"ids"`
 	}
@@ -127,39 +111,31 @@ func BatchCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "图片任务参数无效")
 		return
 	}
-	tasks, err := service.BatchUserCanvasImageTasks(user.ID, request.IDs)
+	tasks, err := service.BatchWorkspaceCanvasImageTasks(workspaceID, request.IDs)
 	if err != nil {
-		log.Printf("batch canvas image tasks failed: user=%s err=%v", user.ID, err)
+		log.Printf("batch canvas image tasks failed: workspace=%s err=%v", workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	OK(w, tasks)
 }
 
-func DeleteUserCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+func DeleteWorkspaceCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
+	workspaceID := service.WorkspaceID
 	if strings.TrimSpace(id) == "" {
 		Fail(w, "图片任务不存在")
 		return
 	}
-	if err := service.DeleteUserCanvasImageTask(user.ID, id); err != nil {
-		log.Printf("delete canvas image task failed: user=%s id=%s err=%v", user.ID, id, err)
+	if err := service.DeleteWorkspaceCanvasImageTask(workspaceID, id); err != nil {
+		log.Printf("delete canvas image task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	OK(w, map[string]any{"deleted": true})
 }
 
-func DeleteUserCanvasTasks(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+func DeleteWorkspaceCanvasTasks(w http.ResponseWriter, r *http.Request) {
+	workspaceID := service.WorkspaceID
 
 	var request struct {
 		SourceID string   `json:"source_id"`
@@ -170,8 +146,8 @@ func DeleteUserCanvasTasks(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := service.DeleteUserCanvasTasks(user.ID, request.SourceID, request.NodeIDs); err != nil {
-		log.Printf("delete canvas tasks failed: user=%s source=%s err=%v", user.ID, request.SourceID, err)
+	if err := service.DeleteWorkspaceCanvasTasks(workspaceID, request.SourceID, request.NodeIDs); err != nil {
+		log.Printf("delete canvas tasks failed: workspace=%s source=%s err=%v", workspaceID, request.SourceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -180,11 +156,7 @@ func DeleteUserCanvasTasks(w http.ResponseWriter, r *http.Request) {
 }
 
 func CreateCanvasAudioTask(w http.ResponseWriter, r *http.Request) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
+	workspaceID := service.WorkspaceID
 	body, contentType, endpoint, _, nodeID, sourceID, clientTaskID, prompt, channelID, err := readCanvasTaskAIRequest(r, "/audio/speech")
 	if err != nil {
 		Fail(w, err.Error())
@@ -196,26 +168,26 @@ func CreateCanvasAudioTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelID = firstNonEmpty(channelID, r.Header.Get("X-Model-Channel-ID"))
-	userChannelID := r.Header.Get(userModelChannelHeader)
-	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(userChannelID) == "" {
+	localChannelID := r.Header.Get(workspaceModelChannelHeader)
+	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(localChannelID) == "" {
 		Fail(w, "缺少模型渠道")
 		return
 	}
-	channel, resolvedUserChannelID, err := selectAIRequestChannel(user, modelName, channelID, userChannelID, true)
+	channel, resolvedLocalChannelID, err := selectAIRequestChannel(workspaceID, modelName, channelID, localChannelID, true)
 	if err != nil {
 		log.Printf("canvas audio task select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
 	}
 	task, err := service.CreateCanvasAudioTask(service.CanvasAudioTaskCreateInput{
-		UserID:          user.ID,
-		UserDisplayName: firstNonEmpty(user.DisplayName, user.Username),
+		WorkspaceID:          workspaceID,
+		
 		SourceID:        sourceID,
 		NodeID:          nodeID,
 		ClientTaskID:    clientTaskID,
 		Model:           modelName,
 		ChannelID:       channel.ID,
-		UserChannelID:   resolvedUserChannelID,
+		LocalChannelID:   resolvedLocalChannelID,
 		ChannelName:     channel.Name,
 		Prompt:          prompt,
 		Endpoint:        endpoint,
@@ -223,23 +195,19 @@ func CreateCanvasAudioTask(w http.ResponseWriter, r *http.Request) {
 		RequestBody:     summarizeAIRequest(body, contentType),
 	})
 	if err != nil {
-		log.Printf("create canvas audio task failed: user=%s err=%v", user.ID, err)
+		log.Printf("create canvas audio task failed: workspace=%s err=%v", workspaceID, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
 	OK(w, service.CanvasAudioTaskResponse(task))
-	go runCanvasAudioTask(task, user, body, contentType, task.ChannelID, task.UserChannelID)
+	go runCanvasAudioTask(task, workspaceID, body, contentType, task.ChannelID, task.LocalChannelID)
 }
 
 func GetCanvasAudioTask(w http.ResponseWriter, r *http.Request, id string) {
-	user, ok := service.UserFromContext(r.Context())
-	if !ok {
-		Fail(w, "未登录或权限不足")
-		return
-	}
-	task, found, err := service.GetUserCanvasAudioTask(user.ID, id)
+	workspaceID := service.WorkspaceID
+	task, found, err := service.GetWorkspaceCanvasAudioTask(workspaceID, id)
 	if err != nil {
-		log.Printf("read canvas audio task failed: user=%s id=%s err=%v", user.ID, id, err)
+		log.Printf("read canvas audio task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
 		Fail(w, "AI 接口请求失败")
 		return
 	}
@@ -250,14 +218,14 @@ func GetCanvasAudioTask(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, service.CanvasAudioTaskResponse(task))
 }
 
-func runCanvasImageTask(task model.CanvasImageTask, user model.AuthUser, body []byte, contentType string, channelID string, userChannelID string) {
+func runCanvasImageTask(task model.CanvasImageTask, workspaceID string, body []byte, contentType string, channelID string, localChannelID string) {
 	current := taskTime()
 	task.Status = "processing"
 	task.Progress = 10
 	task.StartedAt = current
 	task, _ = service.SaveCanvasImageTask(task)
 
-	payload, status, responseContentType, err := executeCanvasAIRequest(user, task.Endpoint, body, contentType, channelID, userChannelID)
+	payload, status, responseContentType, err := executeCanvasAIRequest(workspaceID, task.Endpoint, body, contentType, channelID, localChannelID)
 	if err != nil {
 		saveFailedCanvasImageTask(task, err.Error(), err.Error())
 		return
@@ -295,14 +263,14 @@ func runCanvasImageTask(task model.CanvasImageTask, user model.AuthUser, body []
 	_, _ = service.SaveCanvasImageTask(task)
 }
 
-func runCanvasAudioTask(task model.CanvasAudioTask, user model.AuthUser, body []byte, contentType string, channelID string, userChannelID string) {
+func runCanvasAudioTask(task model.CanvasAudioTask, workspaceID string, body []byte, contentType string, channelID string, localChannelID string) {
 	current := taskTime()
 	task.Status = "processing"
 	task.Progress = 10
 	task.StartedAt = current
 	task, _ = service.SaveCanvasAudioTask(task)
 
-	payload, status, responseContentType, err := executeCanvasAIRequest(user, task.Endpoint, body, contentType, channelID, userChannelID)
+	payload, status, responseContentType, err := executeCanvasAIRequest(workspaceID, task.Endpoint, body, contentType, channelID, localChannelID)
 	if err != nil {
 		saveFailedCanvasAudioTask(task, err.Error(), err.Error())
 		return
@@ -352,14 +320,14 @@ func runCanvasAudioTask(task model.CanvasAudioTask, user model.AuthUser, body []
 	_, _ = service.SaveCanvasAudioTask(task)
 }
 
-func executeCanvasAIRequest(user model.AuthUser, endpoint string, body []byte, contentType string, channelID string, userChannelID string) ([]byte, int, string, error) {
+func executeCanvasAIRequest(workspaceID string, endpoint string, body []byte, contentType string, channelID string, localChannelID string) ([]byte, int, string, error) {
 	request := httptest.NewRequest(http.MethodPost, "http://canvas.local/api/v1"+endpoint, bytes.NewReader(body))
-	request = request.WithContext(service.WithUser(context.Background(), user))
+	request = request.WithContext(context.Background())
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}
-	if strings.TrimSpace(userChannelID) != "" {
-		request.Header.Set(userModelChannelHeader, userChannelID)
+	if strings.TrimSpace(localChannelID) != "" {
+		request.Header.Set(workspaceModelChannelHeader, localChannelID)
 	} else if strings.TrimSpace(channelID) != "" {
 		request.Header.Set("X-Model-Channel-ID", channelID)
 	}

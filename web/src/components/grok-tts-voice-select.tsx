@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { fetchGrokTtsVoices } from "@/services/api/audio";
 import { channelIdForActiveModel, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { GrokTtsVoice } from "@/lib/grok-tts";
 
 type GrokTtsVoiceSelectProps = {
@@ -18,7 +18,7 @@ type GrokTtsVoiceSelectProps = {
 
 export function GrokTtsVoiceSelect({ config, model, value, onChange, enabled = true }: GrokTtsVoiceSelectProps) {
     const configRef = useRef(config);
-    const token = useUserStore((state) => state.token);
+    const backendConnected = useBackendStore((state) => state.available);
     const [voices, setVoices] = useState<GrokTtsVoice[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState("");
@@ -28,7 +28,7 @@ export function GrokTtsVoiceSelect({ config, model, value, onChange, enabled = t
     const requestConfig = { ...config, model, audioModel: model };
     const channelId = channelIdForActiveModel(requestConfig);
     const localChannel = localChannelForActiveModel(requestConfig);
-    const requestKey = `${config.channelMode}|${channelId}|${model}|${localChannel?.baseUrl || config.baseUrl}|${token}`;
+    const requestKey = `${config.channelMode}|${channelId}|${model}|${localChannel?.baseUrl || config.baseUrl}|${backendConnected}`;
 
     useEffect(() => {
         if (!enabled) return;

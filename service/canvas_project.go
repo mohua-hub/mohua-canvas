@@ -18,7 +18,7 @@ type canvasProjectMetadata struct {
 }
 
 func canvasProjectFromRaw(
-	userID string,
+	workspaceID string,
 	raw json.RawMessage,
 ) (model.CanvasProject, error) {
 	var metadata canvasProjectMetadata
@@ -35,7 +35,7 @@ func canvasProjectFromRaw(
 	}
 
 	return model.CanvasProject{
-		UserID:      strings.TrimSpace(userID),
+		WorkspaceID:      strings.TrimSpace(workspaceID),
 		ID:          metadata.ID,
 		ProjectData: string(raw),
 		CreatedAt:   metadata.CreatedAt,
@@ -58,35 +58,29 @@ func canvasProjectData(
 	return result
 }
 
-func CurrentUserCanvasProjects(
+func CurrentWorkspaceCanvasProjects(
 	ctx context.Context,
 ) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 
-	projects, err := repository.ListUserCanvasProjects(user.ID)
+	projects, err := repository.ListWorkspaceCanvasProjects(workspaceID)
 	if err != nil {
 		return nil, err
 	}
 	return canvasProjectData(projects), nil
 }
 
-func SaveCurrentUserCanvasProject(
+func SaveCurrentWorkspaceCanvasProject(
 	ctx context.Context,
 	raw json.RawMessage,
 ) (json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 
-	project, err := canvasProjectFromRaw(user.ID, raw)
+	project, err := canvasProjectFromRaw(workspaceID, raw)
 	if err != nil {
 		return nil, err
 	}
-	saved, err := repository.SaveUserCanvasProject(project)
+	saved, err := repository.SaveWorkspaceCanvasProject(project)
 	if err != nil {
 		return nil, err
 	}
@@ -96,44 +90,38 @@ func SaveCurrentUserCanvasProject(
 	return json.RawMessage(saved.ProjectData), nil
 }
 
-func SyncCurrentUserCanvasProjects(
+func SyncCurrentWorkspaceCanvasProjects(
 	ctx context.Context,
 	rawProjects []json.RawMessage,
 ) ([]json.RawMessage, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 
 	projects := make([]model.CanvasProject, 0, len(rawProjects))
 	for _, raw := range rawProjects {
-		project, err := canvasProjectFromRaw(user.ID, raw)
+		project, err := canvasProjectFromRaw(workspaceID, raw)
 		if err != nil {
 			return nil, err
 		}
 		projects = append(projects, project)
 	}
 
-	saved, err := repository.SaveUserCanvasProjects(user.ID, projects)
+	saved, err := repository.SaveWorkspaceCanvasProjects(workspaceID, projects)
 	if err != nil {
 		return nil, err
 	}
 	return canvasProjectData(saved), nil
 }
 
-func DeleteCurrentUserCanvasProjects(
+func DeleteCurrentWorkspaceCanvasProjects(
 	ctx context.Context,
 	projectIDs []string,
 ) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
+	workspaceID := WorkspaceID
 
 	for _, projectID := range projectIDs {
 		if strings.TrimSpace(projectID) != "" {
-			return repository.SoftDeleteUserCanvasProjects(
-				user.ID,
+			return repository.SoftDeleteWorkspaceCanvasProjects(
+				workspaceID,
 				projectIDs,
 				time.Now().UTC().Format(time.RFC3339Nano),
 			)

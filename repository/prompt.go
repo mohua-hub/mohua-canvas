@@ -158,7 +158,7 @@ func applyPromptTagsFilter(tx *gorm.DB, tags []string) *gorm.DB {
 	}
 	condition := tx.Session(&gorm.Session{NewDB: true})
 	for _, tag := range tags {
-		condition = condition.Or(promptJSONTagsContains(tx), tag)
+		condition = condition.Or("EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)", tag)
 	}
 	return tx.Where(condition)
 }
@@ -175,18 +175,6 @@ func promptTagsFromItems(items []model.Prompt) []string {
 		}
 	}
 	return tags
-}
-
-// promptJSONTagsContains 返回提示词 tags 的 JSON 包含条件。
-func promptJSONTagsContains(tx *gorm.DB) string {
-	switch tx.Dialector.Name() {
-	case "mysql":
-		return "JSON_CONTAINS(tags, JSON_QUOTE(?))"
-	case "postgres":
-		return "jsonb_exists(tags::jsonb, ?)"
-	default:
-		return "EXISTS (SELECT 1 FROM json_each(tags) WHERE value = ?)"
-	}
 }
 
 // isActivePromptOption 判断提示词筛选项有效状态。

@@ -27,11 +27,10 @@ var (
 )
 
 type VideoTaskCreateInput struct {
-	UserID          string
-	UserDisplayName string
+	WorkspaceID          string
 	Model           string
 	ChannelID       string
-	UserChannelID   string
+	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
 	Source          string
@@ -48,9 +47,6 @@ type VideoTaskCreateInput struct {
 	ErrorDetail     string
 	RequestBody     string
 	ResponseBody    string
-	Credits         float64
-	BillingName     string
-	BillingPath     string
 }
 
 type VideoTaskPollUpdate struct {
@@ -74,11 +70,10 @@ func CreateVideoTask(input VideoTaskCreateInput) (model.VideoTask, error) {
 	}
 	task := model.VideoTask{
 		ID:              firstVideoTaskValue(input.ClientTaskID, input.UpstreamTaskID, input.UpstreamVideoID, "video-task-"+uuid.NewString()),
-		UserID:          strings.TrimSpace(input.UserID),
-		UserDisplayName: strings.TrimSpace(input.UserDisplayName),
+		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		UserChannelID:   strings.TrimSpace(input.UserChannelID),
+		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
 		Source:          normalizeVideoTaskSource(input.Source),
@@ -95,7 +90,6 @@ func CreateVideoTask(input VideoTaskCreateInput) (model.VideoTask, error) {
 		RequestBody:     input.RequestBody,
 		ResponseBody:    input.ResponseBody,
 		LastResponse:    input.ResponseBody,
-		Credits:         normalizeCredits(input.Credits),
 		CreatedAt:       current,
 		UpdatedAt:       current,
 	}
@@ -107,26 +101,19 @@ func CreateVideoTask(input VideoTaskCreateInput) (model.VideoTask, error) {
 		task.Status = "failed"
 		task.CompletedAt = current
 	}
-	var saved model.VideoTask
-	var err error
-	if input.WorkflowRef != "" {
-		saved = task
-		err = ConsumeUserCredits(saved.UserID, input.BillingName, saved.Credits, input.BillingPath, &saved)
-	} else {
-		saved, err = repository.SaveVideoTask(task)
-	}
+	saved, err := repository.SaveVideoTask(task)
 	if err == nil && input.WorkflowRef == "" && !IsCompletedVideoTaskStatus(saved.Status) && !IsFailedVideoTaskStatus(saved.Status) {
 		WakeVideoTaskPoller()
 	}
 	return saved, err
 }
 
-func GetUserVideoTask(userID string, id string) (model.VideoTask, bool, error) {
-	return repository.GetUserVideoTask(strings.TrimSpace(userID), strings.TrimSpace(id))
+func GetWorkspaceVideoTask(workspaceID string, id string) (model.VideoTask, bool, error) {
+	return repository.GetWorkspaceVideoTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
-func ListUserVideoTasks(userID string, source string, limit int) ([]map[string]any, error) {
-	tasks, err := repository.ListUserVideoTasks(strings.TrimSpace(userID), normalizeVideoTaskSource(source), limit)
+func ListWorkspaceVideoTasks(workspaceID string, source string, limit int) ([]map[string]any, error) {
+	tasks, err := repository.ListWorkspaceVideoTasks(strings.TrimSpace(workspaceID), normalizeVideoTaskSource(source), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -137,8 +124,8 @@ func ListUserVideoTasks(userID string, source string, limit int) ([]map[string]a
 	return result, nil
 }
 
-func DeleteUserVideoTask(userID string, id string) error {
-	return repository.DeleteUserVideoTask(strings.TrimSpace(userID), strings.TrimSpace(id))
+func DeleteWorkspaceVideoTask(workspaceID string, id string) error {
+	return repository.DeleteWorkspaceVideoTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
 func VideoTaskResponse(task model.VideoTask) map[string]any {
@@ -147,7 +134,7 @@ func VideoTaskResponse(task model.VideoTask) map[string]any {
 		"object":        "video",
 		"model":         task.Model,
 		"channelId":     task.ChannelID,
-		"userChannelId": task.UserChannelID,
+		"localChannelId": task.LocalChannelID,
 		"channelName":   task.ChannelName,
 		"source":        task.Source,
 		"source_id":     task.SourceID,

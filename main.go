@@ -25,9 +25,6 @@ func main() {
 	if err := config.Load(); err != nil {
 		log.Fatal(err)
 	}
-	if err := service.EnsureDefaultAdmin(); err != nil {
-		log.Fatal(err)
-	}
 	if err := service.EnsureDefaultAgentSkills(); err != nil {
 		log.Fatal(err)
 	}
@@ -40,8 +37,8 @@ func main() {
 		if err != nil {
 			log.Fatal(err)
 		}
-		fmt.Println("MOHUA_API_READY=http://" + listener.Addr().String())
+		fmt.Printf("MOHUA_API_READY=%d\n", listener.Addr().(*net.TCPAddr).Port)
 		log.Fatal(engine.RunListener(listener))
 	}
-	log.Fatal(engine.Run(":" + config.Cfg.Port))
+	log.Fatal(engine.Run("127.0.0.1:" + config.Cfg.Port))
 }

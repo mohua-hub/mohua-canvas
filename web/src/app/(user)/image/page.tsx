@@ -51,7 +51,7 @@ import { parseWorkflowRef, type WorkflowRef } from "@/lib/workflow-channel";
 import { deleteImageGenerationLogs, fetchImageGenerationLogs, saveImageGenerationLogs } from "@/services/api/generation-logs";
 import { deleteStoredImages, imageToDataUrl, resolveImageUrl, uploadImage, uploadRemoteImageToServer } from "@/services/image-storage";
 import { useAssetStore } from "@/stores/use-asset-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { ReferenceImage } from "@/types/image";
 
 type GeneratedImage = {
@@ -122,7 +122,7 @@ type GenerationLogConfig = Pick<AiConfig, "channelMode" | "model" | "imageModel"
 type RequestSnapshot = { text: string; requestConfig: AiConfig; displayConfig: GenerationLogConfig; references: ReferenceImage[]; workflowRef?: WorkflowRef };
 type GenerationCategory = { id: string; name: string; createdAt: number };
 type ResultViewMode = "all" | "category";
-type WorkflowPollContext = { token: string; signal: AbortSignal };
+type WorkflowPollContext = { signal: AbortSignal };
 
 type UpdateAiConfig = <K extends keyof AiConfig>(key: K, value: AiConfig[K]) => void;
 type WorkbenchLayout = "side" | "bottom";
@@ -143,9 +143,9 @@ export default function ImagePage() {
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
     const addAsset = useAssetStore((state) => state.addAsset);
-    const token = useUserStore((state) => state.token);
-    const userId = useUserStore((state) => state.user?.id || "");
-    const isUserReady = useUserStore((state) => state.isReady);
+    const backendConnected = useBackendStore((state) => state.available);
+    const workspaceId = "default";
+    const isBackendReady = useBackendStore((state) => state.isReady);
     const [prompt, setPrompt] = useState("");
     const [references, setReferences] = useState<ReferenceImage[]>([]);
     const [uploadingCount, setUploadingCount] = useState(0);
@@ -166,7 +166,7 @@ export default function ImagePage() {
     const [workflowButtonPosition, setWorkflowButtonPosition] = useState({ x: 0, y: 0 });
     const workflowButtonRef = useRef<HTMLButtonElement>(null);
     const workflowButtonDragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number; moved: boolean } | null>(null);
-    const accountHistorySyncEnabledRef = useRef(false);
+    const workspaceHistorySyncEnabledRef = useRef(false);
     const saveLogChainRef = useRef<Promise<void>>(Promise.resolve());
     const pollingLogIdsRef = useRef(new Set<string>());
     const logsRef = useRef<GenerationLog[]>([]);
@@ -177,7 +177,7 @@ export default function ImagePage() {
     const generationCount = Math.max(1, Math.min(10, Number(config.count) || 1));
     const pendingCount = results.filter((item) => item.status === "pending").length;
     const pendingLogCount = logs.filter((log) => log.status === "生成中" && log.task && !log.images.length).length;
-    const usesBackendImageTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(token));
+    const usesBackendImageTasks = (value: AiConfig) => value.channelMode === "remote" || (value.channelMode === "local" && Boolean(backendConnected));
     const imageTaskConfig = () => effectiveConfigRef.current;
 
     const restorePendingLogResults = (sourceLogs: GenerationLog[]) => {
@@ -220,8 +220,8 @@ export default function ImagePage() {
     }, [logs]);
 
     useEffect(() => {
-        if (token) accountHistorySyncEnabledRef.current = true;
-    }, [token]);
+        if (backendConnected) workspaceHistorySyncEnabledRef.current = true;
+    }, [backendConnected]);
 
     useEffect(() => {
         effectiveConfigRef.current = effectiveConfig;
@@ -232,13 +232,13 @@ export default function ImagePage() {
     }, [logs]);
 
     useEffect(() => {
-        if (!isUserReady) return;
-        if (token) {
+        if (!isBackendReady) return;
+        if (backendConnected) {
             void loadAccountImageHistory().then((items) => syncBackendImageTasks(items));
             return;
         }
         void refreshLogs().then((items) => syncBackendImageTasks(items));
-    }, [isUserReady, token]);
+    }, [isBackendReady, backendConnected]);
 
     useEffect(() => {
         if (!pendingCount && !pendingLogCount) return;
@@ -249,14 +249,14 @@ export default function ImagePage() {
     useEffect(() => {
         if (!pendingLogCount) return;
         const controller = new AbortController();
-        const context = { token: token || "", signal: controller.signal };
+        const context = { signal: controller.signal };
         pollPendingLogsOnce(logsRef.current, context);
         const timer = window.setInterval(() => pollPendingLogsOnce(logsRef.current, context), IMAGE_TASK_POLL_INTERVAL_MS);
         return () => {
             controller.abort();
             window.clearInterval(timer);
         };
-    }, [pendingLogCount, token, userId]);
+    }, [pendingLogCount, backendConnected, workspaceId]);
 
     const setWorkbenchLayout = (layout: WorkbenchLayout) => {
         setWorkbenchLayoutState(layout);
@@ -417,8 +417,7 @@ export default function ImagePage() {
     };
 
     const submitPersistentGenerationBatch = async (snapshot: RequestSnapshot) => {
-        const workflowToken = snapshot.workflowRef ? useUserStore.getState().token : "";
-        const active = () => !snapshot.workflowRef || useUserStore.getState().token === workflowToken;
+        const active = () => !snapshot.workflowRef || useBackendStore.getState().available;
         setPreviewLog(null);
         const taskCount = Math.max(1, Number(snapshot.displayConfig.count) || 1);
         const pendingLogs = Array.from({ length: taskCount }, (_, index) => {
@@ -447,22 +446,22 @@ export default function ImagePage() {
         setResults((value) => mergePendingLogResults(value, pendingLogs));
         setNow(Date.now());
 
-        const settled = await Promise.allSettled(pendingLogs.map((log, index) => createPersistentImageTask(log, snapshot, index, taskCount, workflowToken)));
+        const settled = await Promise.allSettled(pendingLogs.map((log, index) => createPersistentImageTask(log, snapshot, index, taskCount)));
         if (!active()) return;
         const createdCount = settled.filter((item) => item.status === "fulfilled").length;
         if (createdCount) message.success(`已创建 ${createdCount} 个图片任务`);
         if (createdCount < pendingLogs.length) message.warning(`${pendingLogs.length - createdCount} 个图片任务创建失败`);
     };
 
-    const createPersistentImageTask = async (pendingLog: GenerationLog, snapshot: RequestSnapshot, index: number, taskCount: number, workflowToken: string) => {
-        const active = () => !snapshot.workflowRef || useUserStore.getState().token === workflowToken;
+    const createPersistentImageTask = async (pendingLog: GenerationLog, snapshot: RequestSnapshot, index: number, taskCount: number) => {
+        const active = () => !snapshot.workflowRef || useBackendStore.getState().available;
         try {
             let task: CanvasImageTask;
             if (snapshot.workflowRef) {
-                if (!workflowToken) throw new Error("工作流生成需要先登录");
+                if (!useBackendStore.getState().available) throw new Error("工作流生成需要连接后端服务");
                 const referenceImages = await Promise.all(snapshot.references.map(imageToDataUrl));
-                if (!active()) throw new Error("登录状态已变化");
-                const created = await submitWorkflowTask(workflowToken, {
+                if (!active()) throw new Error("后端连接已变化");
+                const created = await submitWorkflowTask({
                     ref: snapshot.workflowRef,
                     expectedCapability: "image",
                     prompt: snapshot.text,
@@ -475,7 +474,7 @@ export default function ImagePage() {
                     sourceId: pendingLog.id,
                     clientTaskId: imageLogTaskId(pendingLog),
                 });
-                if (!active()) throw new Error("登录状态已变化");
+                if (!active()) throw new Error("后端连接已变化");
                 task = { id: created.id, status: created.status, progress: created.progress, source: "workflow", source_id: pendingLog.id };
             } else {
                 task = await createCanvasImageTask(
@@ -487,7 +486,7 @@ export default function ImagePage() {
             }
             const nextLog = { ...pendingLog, task, lastPolledAt: Date.now() };
             await saveLog(nextLog, active);
-            if (!active()) throw new Error("登录状态已变化");
+            if (!active()) throw new Error("后端连接已变化");
             setResults((value) => updateResultByLogId(value, pendingLog.id, { taskLogId: nextLog.id, task, progress: task.progress, lastPolledAt: nextLog.lastPolledAt }));
             return nextLog;
         } catch (error) {
@@ -721,7 +720,7 @@ export default function ImagePage() {
     };
 
     const deleteBackendImageTasks = async (items: GenerationLog[]) => {
-        if (!token) return;
+        if (!backendConnected) return;
         const tasks = Array.from(
             new Map(
                 items.flatMap((item) => {
@@ -736,10 +735,10 @@ export default function ImagePage() {
     };
 
     const deleteAccountImageLogs = async (items: GenerationLog[]) => {
-        if (!token) return;
+        if (!backendConnected) return;
         const ids = Array.from(new Set(items.flatMap((item) => [item.id, item.task?.id].filter((id): id is string => Boolean(id)))));
         if (!ids.length) return;
-        await deleteImageGenerationLogs(token, ids).catch(() => undefined);
+        await deleteImageGenerationLogs(ids).catch(() => undefined);
     };
 
     const deleteSelectedLogs = () => {
@@ -800,7 +799,7 @@ export default function ImagePage() {
 
     const saveLog = async (log: GenerationLog, active: () => boolean = () => true) => {
         if (!active()) return;
-        const persistedLog = token ? log : await persistLoggedOutLogImages(log);
+        const persistedLog = backendConnected ? log : await persistLoggedOutLogImages(log);
         if (!active()) return;
         const prevChain = saveLogChainRef.current;
         const nextChain = (async () => {
@@ -836,10 +835,10 @@ export default function ImagePage() {
 
     const loadAccountImageHistory = async () => {
         try {
-            accountHistorySyncEnabledRef.current = true;
+            workspaceHistorySyncEnabledRef.current = true;
             const localLogs = await readStoredLogs();
             const storedCategories = await readStoredCategories();
-            const remoteLogs = await fetchImageGenerationLogs<GenerationLog>(token);
+            const remoteLogs = await fetchImageGenerationLogs<GenerationLog>();
             const mergedLogs = await mergeGenerationLogs(remoteLogs, localLogs);
             const categorized = withWorkflowLogCategories(mergedLogs, storedCategories);
             await replaceStoredImageHistory(categorized.logs, categorized.categories);
@@ -847,21 +846,21 @@ export default function ImagePage() {
             setLogs(categorized.logs);
             return categorized.logs;
         } catch {
-            // Keep local history available when account sync fails.
+            // Keep local history available when workspace sync fails.
             return undefined;
         }
     };
 
     const persistImageHistory = async (nextLogs: GenerationLog[], _nextCategories: GenerationCategory[]) => {
-        if (!token || !accountHistorySyncEnabledRef.current) return;
-        await saveImageGenerationLogs(token, nextLogs.map(serializeLog)).catch(() => {
-            accountHistorySyncEnabledRef.current = false;
+        if (!backendConnected || !workspaceHistorySyncEnabledRef.current) return;
+        await saveImageGenerationLogs(nextLogs.map(serializeLog)).catch(() => {
+            workspaceHistorySyncEnabledRef.current = false;
         });
     };
 
     const syncBackendImageTasks = async (baseLogs?: GenerationLog[]) => {
         const currentConfig = imageTaskConfig();
-        if (!token) return baseLogs || logsRef.current;
+        if (!backendConnected) return baseLogs || logsRef.current;
         try {
             const tasks = await listCanvasImageTasks(currentConfig, ["image-workbench", "workflow"]);
             const recoverableTasks = tasks.filter(isRecoverableImageTask);
@@ -880,7 +879,7 @@ export default function ImagePage() {
     };
 
     const pollImageTaskLogsOnce = async (pendingLogs: GenerationLog[], context: WorkflowPollContext) => {
-        const active = () => !context.signal.aborted && useUserStore.getState().token === context.token;
+        const active = () => !context.signal.aborted && useBackendStore.getState().available;
         const ids = pendingLogs.map(imageLogTaskId).filter(Boolean);
         if (!ids.length) return;
         pendingLogs.forEach((log) => pollingLogIdsRef.current.add(log.id));
@@ -888,10 +887,10 @@ export default function ImagePage() {
             const normalLogs = pendingLogs.filter((log) => !log.providerWorkflowRef);
             const normalTasks = normalLogs.length ? await batchCanvasImageTaskStatus(imageTaskConfig(), normalLogs.map(imageLogTaskId)) : [];
             const workflowTasks = await Promise.all(pendingLogs.filter((log) => log.providerWorkflowRef).map(async (log): Promise<CanvasImageTask | null> => {
-                if (!context.token) return { ...log.task!, status: "running" };
+                if (!useBackendStore.getState().available) return { ...log.task!, status: "running" };
                 if (!active()) return null;
                 try {
-                    const current = await getWorkflowTask(context.token, imageLogTaskId(log), context.signal);
+                    const current = await getWorkflowTask(imageLogTaskId(log), context.signal);
                     if (!active()) return null;
                     if (current.status === "succeeded") {
                         if (!current.urls?.length) return { ...log.task!, id: current.id, status: "failed", progress: 100, error: { message: "工作流完成但没有返回图片" } };
@@ -899,7 +898,7 @@ export default function ImagePage() {
                             const storageKey = comfyOutputStorageKey(url);
                             return storageKey
                                 ? Promise.resolve({ url, storageKey, width: 0, height: 0, bytes: 0, mimeType: "image/png" })
-                                : uploadImage(url, { token: context.token });
+                                : uploadImage(url);
                         }));
                         if (!active()) return null;
                         return { ...log.task!, id: current.id, status: "completed", progress: 100, url: stored[0].url, image_url: stored[0].url, image_urls: stored.map((item) => item.url), imageStorage: stored, storageKey: stored[0].storageKey };
@@ -1048,7 +1047,7 @@ export default function ImagePage() {
         const baseConfig = { ...effectiveConfig, ...configOverride };
         const requestModel = configOverride?.imageModel || configOverride?.model || model;
         const requestChannelId = resolveImageChannelId(baseConfig, requestModel, configOverride?.imageChannelId, configOverride?.activeChannelId, baseConfig.imageChannelId, baseConfig.activeChannelId);
-        if (workflowRef && !token) { message.warning("工作流生成请先登录"); return null; }
+        if (workflowRef && !backendConnected) { message.warning("工作流生成请先连接后端服务"); return null; }
         if (!workflowRef && !isAiConfigReady(baseConfig, requestModel)) {
             message.warning("请先完成配置");
             openConfigDialog(true);
@@ -2821,7 +2820,7 @@ function normalizeLogConfig(log: Partial<GenerationLog>): GenerationLogConfig {
 }
 
 function imageTaskChannelId(task?: CanvasImageTask | null) {
-    return task?.userChannelId || task?.channelId || "";
+    return task?.localChannelId || task?.channelId || "";
 }
 
 function resolveImageChannelId(config: AiConfig, model: string, ...preferredIds: Array<string | undefined>) {

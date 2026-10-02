@@ -7,7 +7,7 @@ import { isMimoChannel, mimoModels } from "@/lib/mimo-tts";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig, normalizeGeminiBaseUrl } from "@/lib/gemini";
 import { autoSyncImage, imageToDataUrl, resolveImageUrl, type UploadedImage } from "@/services/image-storage";
 import { buildApiUrl, channelIdForActiveModel, channelProtocolForConfig, directAIProviderForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import { fetchAutoDLWorkflows } from "./autodl";
 import type { ReferenceImage } from "@/types/image";
 import { nanoid } from "nanoid";
@@ -47,7 +47,7 @@ export type CanvasImageTask = {
     source_id?: string;
     node_id?: string;
     channelId?: string;
-    userChannelId?: string;
+    localChannelId?: string;
     channelName?: string;
     workflowRef?: string;
     model?: string;
@@ -517,32 +517,32 @@ function withPromptGuard(config: AiConfig, prompt: string) {
     return config.codexCli ? `${PROMPT_REWRITE_GUARD_PREFIX}\n${prompt}` : prompt;
 }
 
-function usesAccountProxy(config: AiConfig) {
-    const token = useUserStore.getState().token;
-    return config.channelMode === "remote" || (config.channelMode === "local" && Boolean(token));
+function usesServerProxy(config: AiConfig) {
+    const backendConnected = useBackendStore.getState().available;
+    return config.channelMode === "remote" || (config.channelMode === "local" && Boolean(backendConnected));
 }
 
 export function aiApiUrl(config: AiConfig, path: string) {
-    if (usesAccountProxy(config)) return `/api/v1${path}`;
+    if (usesServerProxy(config)) return `/api/v1${path}`;
     const channel = localChannelForActiveModel(config);
     return buildApiUrl(channel?.baseUrl || config.baseUrl, path);
 }
 
 export function aiHeaders(config: AiConfig, contentType?: string) {
-    const token = useUserStore.getState().token;
-    if (config.channelMode === "remote" && !token) throw new Error("请先登录后再使用云端渠道");
+    const backendConnected = useBackendStore.getState().available;
+    if (config.channelMode === "remote" && !backendConnected) throw new Error("请先连接后端服务后再使用云端渠道");
     if (config.channelMode === "remote") {
         return {
-            Authorization: `Bearer ${token}`,
+            
             ...(channelIdForActiveModel(config) ? { "X-Model-Channel-ID": channelIdForActiveModel(config) } : {}),
             ...(contentType ? { "Content-Type": contentType } : {}),
         };
     }
-    if (token) {
-        const userChannelId = channelIdForActiveModel(config);
+    if (backendConnected) {
+        const localChannelId = channelIdForActiveModel(config);
         return {
-            Authorization: `Bearer ${token}`,
-            ...(userChannelId ? { "X-User-Model-Channel-ID": userChannelId } : {}),
+            
+            ...(localChannelId ? { "X-Local-Model-Channel-ID": localChannelId } : {}),
             ...(contentType ? { "Content-Type": contentType } : {}),
         };
     }
@@ -553,18 +553,14 @@ export function aiHeaders(config: AiConfig, contentType?: string) {
     };
 }
 
-export function refreshRemoteUser(config: AiConfig) {
-    if (usesAccountProxy(config)) void useUserStore.getState().hydrateUser();
-}
-
 async function writeLocalAICallLog(config: AiConfig, endpoint: string, startedAt: number, status: number, timeoutSeconds: number, requestBody: string, responseBody: string, error: string) {
-    if (config.channelMode !== "local" || usesAccountProxy(config)) return;
-    const token = useUserStore.getState().token;
-    if (!token) return;
+    if (config.channelMode !== "local" || usesServerProxy(config)) return;
+    const backendConnected = useBackendStore.getState().available;
+    if (!backendConnected) return;
     const channel = localChannelForActiveModel(config);
     await fetch("/api/v1/ai-logs", {
         method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        headers: { "Content-Type": "application/json", },
         body: JSON.stringify({
             endpoint,
             method: "POST",
@@ -573,7 +569,6 @@ async function writeLocalAICallLog(config: AiConfig, endpoint: string, startedAt
             channelName: channel?.name || "本地直连",
             status,
             durationMs: Date.now() - startedAt,
-            credits: 0,
             requestBody,
             responseBody,
             error,
@@ -687,7 +682,7 @@ async function requestImageGenerationSingle(config: AiConfig & { seedIndex?: num
     applyImageGenerationParams(body, config, params);
     applyImageGenerationOptions(body, config, params);
 
-    const directProvider = !usesAccountProxy(config) ? directAIProviderForConfig(config) : null;
+    const directProvider = !usesServerProxy(config) ? directAIProviderForConfig(config) : null;
     if (directProvider) {
         const { requestDirectImages } = await import("@/services/api/direct-ai");
         return parseImagePayload(await requestDirectImages(config, directProvider, "/images/generations", body, params.timeoutSeconds), mime);
@@ -785,7 +780,7 @@ async function requestImageEditSingle(config: AiConfig, prompt: string, referenc
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
     files.forEach((file) => formData.append("image", file));
 
-    const directProvider = !usesAccountProxy(config) ? directAIProviderForConfig(config) : null;
+    const directProvider = !usesServerProxy(config) ? directAIProviderForConfig(config) : null;
     if (directProvider) {
         const { requestDirectImages } = await import("@/services/api/direct-ai");
         return parseImagePayload(await requestDirectImages(config, directProvider, "/images/edits", formData, params.timeoutSeconds), mime);
@@ -987,7 +982,6 @@ async function syncCanvasImageTask(task: CanvasImageTask, resultId = task.starte
 export async function requestGeneration(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string) {
     try {
         const images = await requestImages(config, prompt, []);
-        refreshRemoteUser(config);
         return syncGeneratedImages(images);
     } catch (error) {
         if (error instanceof ImageRequestError) throw error;
@@ -998,7 +992,6 @@ export async function requestGeneration(config: AiConfig & { seedIndex?: number;
 export async function requestEdit(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[]) {
     try {
         const images = await requestImages(config, prompt, references);
-        refreshRemoteUser(config);
         return syncGeneratedImages(images);
     } catch (error) {
         if (error instanceof ImageRequestError) throw error;
@@ -1007,7 +1000,7 @@ export async function requestEdit(config: AiConfig & { seedIndex?: number; seedC
 }
 
 export async function createCanvasImageTask(config: AiConfig & { seedIndex?: number; seedCount?: number }, prompt: string, references: ReferenceImage[], options: CanvasImageTaskOptions = {}): Promise<CanvasImageTask> {
-    if (!usesAccountProxy(config)) {
+    if (!usesServerProxy(config)) {
         const images = await requestImages({ ...config, count: "1" }, prompt, references);
         const [image] = images;
         if (!image) throw new Error("接口没有返回图片");
@@ -1033,15 +1026,13 @@ export async function createCanvasImageTask(config: AiConfig & { seedIndex?: num
     }
     const payload = (await response.json()) as { code?: number; msg?: string; data?: CanvasImageTask };
     if (payload.code !== 0 || !payload.data) throw new ImageRequestError(payload.msg || "图片任务创建失败", payload);
-    refreshRemoteUser(config);
     return syncCanvasImageTask(payload.data);
 }
 
 export async function pollCanvasImageTaskStatus(taskId: string): Promise<CanvasImageTask> {
-    const token = useUserStore.getState().token;
-    if (!token) throw new Error("请先登录后再使用云端渠道");
+    const backendConnected = useBackendStore.getState().available;
+    if (!backendConnected) throw new Error("请先连接后端服务后再使用云端渠道");
     const response = await fetch(`/api/v1/canvas/image-tasks/${encodeURIComponent(taskId)}`, {
-        headers: { Authorization: `Bearer ${token}` },
     });
     if (!response.ok) {
         const error = await fetchErrorDetail(response, "读取图片任务失败");
@@ -1212,7 +1203,6 @@ export async function requestImageQuestion(config: AiConfig, messages: ChatCompl
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
-    refreshRemoteUser(config);
     return answer || "没有返回内容";
 }
 
@@ -1260,7 +1250,7 @@ export async function fetchImageModels(config: AiConfig) {
 
 async function requestGeminiImageSingle(config: AiConfig, prompt: string, references: ReferenceImage[], params: ImageRequestParams): Promise<GeneratedImage[]> {
     const body = await createGeminiImageBody(config, prompt, references, params);
-    const proxy = usesAccountProxy(config);
+    const proxy = usesServerProxy(config);
     const channel = localChannelForActiveModel(config);
     const nativeBody = proxy ? body : withoutModel(body);
     return requestAndParseImages(
@@ -1340,7 +1330,7 @@ function parseGeminiImages(payload: Record<string, unknown>) {
 
 async function requestGeminiText(config: AiConfig, messages: ChatCompletionMessage[], onDelta: (text: string) => void) {
     const body = await createGeminiTextBody(config, withSystemMessage(config, messages));
-    const proxy = usesAccountProxy(config);
+    const proxy = usesServerProxy(config);
     const channel = localChannelForActiveModel(config);
     const response = await fetch(proxy ? "/api/v1/chat/completions" : geminiActionUrl(channel?.baseUrl || config.baseUrl, config.model, "streamGenerateContent"), {
         method: "POST",
@@ -1363,7 +1353,6 @@ async function requestGeminiText(config: AiConfig, messages: ChatCompletionMessa
             onDelta(answer);
         }
     });
-    refreshRemoteUser(config);
     return answer || "没有返回内容";
 }
 
@@ -1514,7 +1503,7 @@ async function requestAgnesImageEdit(config: AiConfig & { seedIndex?: number; se
 }
 
 export async function listCanvasImageTasks(config: AiConfig, sources: Array<"image-workbench" | "workflow" | "canvas"> = []) {
-    if (!usesAccountProxy(config)) return [];
+    if (!usesServerProxy(config)) return [];
     const query = sources.length ? `?${sources.map((source) => `source=${encodeURIComponent(source)}`).join("&")}` : "";
     const response = await fetch(`/api/v1/canvas/image-tasks${query}`, {
         headers: aiHeaders(config),
@@ -1530,7 +1519,7 @@ export async function listCanvasImageTasks(config: AiConfig, sources: Array<"ima
 
 export async function batchCanvasImageTaskStatus(config: AiConfig, ids: string[]) {
     const taskIds = Array.from(new Set(ids.map((id) => id.trim()).filter(Boolean)));
-    if (!usesAccountProxy(config) || !taskIds.length) return [];
+    if (!usesServerProxy(config) || !taskIds.length) return [];
     const response = await fetch("/api/v1/canvas/image-tasks/status", {
         method: "POST",
         headers: aiHeaders(config, "application/json"),
@@ -1546,7 +1535,7 @@ export async function batchCanvasImageTaskStatus(config: AiConfig, ids: string[]
 }
 
 export async function deleteCanvasImageTask(config: AiConfig, task?: CanvasImageTask | null) {
-    if (!usesAccountProxy(config) || !task?.id) return;
+    if (!usesServerProxy(config) || !task?.id) return;
     const response = await fetch(`/api/v1/canvas/image-tasks/${encodeURIComponent(task.id)}`, {
         method: "DELETE",
         headers: aiHeaders(config),

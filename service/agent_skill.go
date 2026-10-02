@@ -60,39 +60,30 @@ func ReadEnabledSystemAgentSkillFile(id string, filePath string) (model.AgentSki
 	return file, nil
 }
 
-func ListCurrentUserAgentSkills(ctx context.Context) ([]model.AgentSkill, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return nil, errors.New("请先登录")
-	}
-	return repository.ListUserAgentSkills(user.ID)
+func ListCurrentWorkspaceAgentSkills(ctx context.Context) ([]model.AgentSkill, error) {
+	workspaceID := WorkspaceID
+	return repository.ListWorkspaceAgentSkills(workspaceID)
 }
 
-func SaveCurrentUserAgentSkill(ctx context.Context, input model.AgentSkill) (model.AgentSkill, error) {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return model.AgentSkill{}, errors.New("请先登录")
-	}
-	return saveAgentSkill(input, model.AgentSkillSourceUser, user.ID)
+func SaveCurrentWorkspaceAgentSkill(ctx context.Context, input model.AgentSkill) (model.AgentSkill, error) {
+	workspaceID := WorkspaceID
+	return saveAgentSkill(input, model.AgentSkillSourceUser, workspaceID)
 }
 
 func SaveSystemAgentSkill(input model.AgentSkill) (model.AgentSkill, error) {
 	return saveAgentSkill(input, model.AgentSkillSourceSystem, "")
 }
 
-func DeleteCurrentUserAgentSkill(ctx context.Context, id string) error {
-	user, ok := UserFromContext(ctx)
-	if !ok || user.ID == "" {
-		return errors.New("请先登录")
-	}
-	return repository.DeleteUserAgentSkill(strings.TrimSpace(id), user.ID)
+func DeleteCurrentWorkspaceAgentSkill(ctx context.Context, id string) error {
+	workspaceID := WorkspaceID
+	return repository.DeleteWorkspaceAgentSkill(strings.TrimSpace(id), workspaceID)
 }
 
 func DeleteSystemAgentSkill(id string) error {
 	return repository.DeleteSystemAgentSkill(strings.TrimSpace(id))
 }
 
-func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (model.AgentSkill, error) {
+func saveAgentSkill(input model.AgentSkill, source string, ownerWorkspaceID string) (model.AgentSkill, error) {
 	name := strings.TrimSpace(input.Name)
 	content := strings.TrimSpace(input.Content)
 	if name == "" {
@@ -113,7 +104,7 @@ func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (
 		if err != nil {
 			return model.AgentSkill{}, err
 		}
-		if !found || existing.Source != source || existing.OwnerUserID != ownerUserID {
+		if !found || existing.Source != source || existing.OwnerWorkspaceID != ownerWorkspaceID {
 			return model.AgentSkill{}, errors.New("Skill 不存在或无权修改")
 		}
 		createdAt = existing.CreatedAt
@@ -124,7 +115,7 @@ func saveAgentSkill(input model.AgentSkill, source string, ownerUserID string) (
 
 	item := model.AgentSkill{
 		ID:              id,
-		OwnerUserID:     ownerUserID,
+		OwnerWorkspaceID:     ownerWorkspaceID,
 		Source:          source,
 		Name:            name,
 		Description:     strings.TrimSpace(input.Description),

@@ -3,7 +3,7 @@ import localforage from "localforage";
 import type { WorkflowChannelData, WorkflowEntry } from "@/lib/workflow-channel";
 
 const store = localforage.createInstance({ name: "infinite-canvas", storeName: "workflow_channels" });
-const accountKey = (accountId: string) => encodeURIComponent(accountId || "guest");
+const storageKey = "default";
 let writeQueue = Promise.resolve();
 
 function queueWrite(write: () => Promise<void>) {
@@ -12,33 +12,33 @@ function queueWrite(write: () => Promise<void>) {
     return next;
 }
 
-async function readAccountChannels(accountId: string) {
-    return (await store.getItem<WorkflowChannelData[]>(accountKey(accountId))) || [];
+async function readChannels() {
+    return (await store.getItem<WorkflowChannelData[]>(storageKey)) || [];
 }
 
-export async function readWorkflowChannel(accountId: string, protocol: WorkflowChannelData["protocol"], channelId: string): Promise<WorkflowEntry[]> {
+export async function readWorkflowChannel(protocol: WorkflowChannelData["protocol"], channelId: string): Promise<WorkflowEntry[]> {
 	await writeQueue;
-	const channels = await readAccountChannels(accountId);
+	const channels = await readChannels();
     return channels.find((channel) => channel.protocol === protocol && channel.channelId === channelId)?.workflows || [];
 }
 
-export async function saveWorkflowChannel(accountId: string, protocol: WorkflowChannelData["protocol"], channelId: string, workflows: WorkflowEntry[]) {
+export async function saveWorkflowChannel(protocol: WorkflowChannelData["protocol"], channelId: string, workflows: WorkflowEntry[]) {
     await queueWrite(async () => {
-        const channels = await readAccountChannels(accountId);
+        const channels = await readChannels();
         const index = channels.findIndex((channel) => channel.protocol === protocol && channel.channelId === channelId);
         const updatedChannels = [...channels];
         const channel = { protocol, channelId, workflows };
         if (index >= 0) updatedChannels[index] = channel;
         else updatedChannels.push(channel);
-        await store.setItem(accountKey(accountId), updatedChannels);
+        await store.setItem(storageKey, updatedChannels);
     });
 }
 
-export async function listWorkflowChannels(accountId: string): Promise<WorkflowChannelData[]> {
+export async function listWorkflowChannels(): Promise<WorkflowChannelData[]> {
 	await writeQueue;
-	return readAccountChannels(accountId);
+	return readChannels();
 }
 
-export async function replaceWorkflowChannels(accountId: string, channels: WorkflowChannelData[]) {
-    await queueWrite(() => store.setItem(accountKey(accountId), channels).then(() => undefined));
+export async function replaceWorkflowChannels(channels: WorkflowChannelData[]) {
+    await queueWrite(() => store.setItem(storageKey, channels).then(() => undefined));
 }

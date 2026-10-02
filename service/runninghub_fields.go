@@ -31,6 +31,10 @@ func normalizeManagementAppFields(raw any, capability string) []map[string]any {
 		if _, exists := field["enabled"]; !exists {
 			field["enabled"] = true
 		}
+		if stringValue(field["label"]) == "" {
+			field["label"] = firstNonEmpty(stringValue(field["description"]), fieldName)
+		}
+		applyRunningHubFieldData(field)
 		fieldType := strings.ToUpper(strings.TrimSpace(stringValue(field["fieldType"])))
 		if fieldType == "" {
 			fieldType = managementWorkflowFieldType(fieldName, field["fieldValue"], "")
@@ -50,6 +54,42 @@ func normalizeManagementAppFields(raw any, capability string) []map[string]any {
 		fields = append(fields, field)
 	}
 	return applyManagementFieldDefaults(fields, capability)
+}
+
+func applyRunningHubFieldData(field map[string]any) {
+	data := field["fieldData"]
+	if text, ok := data.(string); ok {
+		if json.Unmarshal([]byte(text), &data) != nil {
+			return
+		}
+	}
+	items, ok := data.([]any)
+	if !ok {
+		return
+	}
+	options := []any{}
+	for _, item := range items {
+		switch value := item.(type) {
+		case map[string]any:
+			if index, exists := value["index"]; exists {
+				options = append(options, map[string]any{"value": index, "label": firstNonEmpty(stringValue(value["description"]), stringValue(value["name"]), stringValue(index))})
+				continue
+			}
+			for _, key := range []string{"min", "max", "step"} {
+				if limit, exists := value[key]; exists {
+					field[key] = limit
+				}
+			}
+			if field["fieldValue"] == nil && value["default"] != nil {
+				field["fieldValue"] = value["default"]
+			}
+		case []any:
+			options = value
+		}
+	}
+	if len(options) > 0 && stringValue(field["fieldType"]) != "IMAGE" && stringValue(field["fieldType"]) != "VIDEO" && stringValue(field["fieldType"]) != "AUDIO" {
+		field["options"], field["optionsSource"] = options, "workflow"
+	}
 }
 
 func collectManagementWorkflowFields(workflow map[string]any, capability string) []map[string]any {

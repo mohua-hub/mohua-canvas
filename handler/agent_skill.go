@@ -26,8 +26,8 @@ func AgentSkillFile(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, item)
 }
 
-func UserAgentSkills(w http.ResponseWriter, r *http.Request) {
-	items, err := service.ListCurrentUserAgentSkills(r.Context())
+func WorkspaceAgentSkills(w http.ResponseWriter, r *http.Request) {
+	items, err := service.ListCurrentWorkspaceAgentSkills(r.Context())
 	if err != nil {
 		FailError(w, err)
 		return
@@ -35,13 +35,13 @@ func UserAgentSkills(w http.ResponseWriter, r *http.Request) {
 	OK(w, items)
 }
 
-func SaveUserAgentSkill(w http.ResponseWriter, r *http.Request) {
+func SaveWorkspaceAgentSkill(w http.ResponseWriter, r *http.Request) {
 	var item model.AgentSkill
 	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
 		Fail(w, "Skill 数据格式错误")
 		return
 	}
-	saved, err := service.SaveCurrentUserAgentSkill(r.Context(), item)
+	saved, err := service.SaveCurrentWorkspaceAgentSkill(r.Context(), item)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -49,8 +49,8 @@ func SaveUserAgentSkill(w http.ResponseWriter, r *http.Request) {
 	OK(w, saved)
 }
 
-func DeleteUserAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
-	if err := service.DeleteCurrentUserAgentSkill(r.Context(), id); err != nil {
+func DeleteWorkspaceAgentSkill(w http.ResponseWriter, r *http.Request, id string) {
+	if err := service.DeleteCurrentWorkspaceAgentSkill(r.Context(), id); err != nil {
 		FailError(w, err)
 		return
 	}

@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm/clause"
 )
 
-func ListUserCanvasProjects(userID string) ([]model.CanvasProject, error) {
+func ListWorkspaceCanvasProjects(workspaceID string) ([]model.CanvasProject, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -17,13 +17,13 @@ func ListUserCanvasProjects(userID string) ([]model.CanvasProject, error) {
 
 	var projects []model.CanvasProject
 	err = db.Where(
-		"user_id = ? AND deleted_at = ''",
-		strings.TrimSpace(userID),
+		"workspace_id = ? AND deleted_at = ''",
+		strings.TrimSpace(workspaceID),
 	).Order("updated_at DESC").Find(&projects).Error
 	return projects, err
 }
 
-func SaveUserCanvasProject(
+func SaveWorkspaceCanvasProject(
 	project model.CanvasProject,
 ) (model.CanvasProject, error) {
 	db, err := DB()
@@ -31,14 +31,14 @@ func SaveUserCanvasProject(
 		return project, err
 	}
 
-	project.UserID = strings.TrimSpace(project.UserID)
+	project.WorkspaceID = strings.TrimSpace(project.WorkspaceID)
 	project.ID = strings.TrimSpace(project.ID)
 
 	var current model.CanvasProject
 	err = db.First(
 		&current,
-		"user_id = ? AND id = ?",
-		project.UserID,
+		"workspace_id = ? AND id = ?",
+		project.WorkspaceID,
 		project.ID,
 	).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -53,8 +53,8 @@ func SaveUserCanvasProject(
 
 	result := db.Model(&model.CanvasProject{}).
 		Where(
-			"user_id = ? AND id = ? AND deleted_at = '' AND updated_at <= ?",
-			project.UserID,
+			"workspace_id = ? AND id = ? AND deleted_at = '' AND updated_at <= ?",
+			project.WorkspaceID,
 			project.ID,
 			project.UpdatedAt,
 		).
@@ -68,8 +68,8 @@ func SaveUserCanvasProject(
 	if result.RowsAffected == 0 {
 		if err := db.First(
 			&current,
-			"user_id = ? AND id = ?",
-			project.UserID,
+			"workspace_id = ? AND id = ?",
+			project.WorkspaceID,
 			project.ID,
 		).Error; err != nil {
 			return project, err
@@ -79,21 +79,21 @@ func SaveUserCanvasProject(
 	return project, nil
 }
 
-func SaveUserCanvasProjects(
-	userID string,
+func SaveWorkspaceCanvasProjects(
+	workspaceID string,
 	projects []model.CanvasProject,
 ) ([]model.CanvasProject, error) {
 	for _, project := range projects {
-		project.UserID = userID
-		if _, err := SaveUserCanvasProject(project); err != nil {
+		project.WorkspaceID = workspaceID
+		if _, err := SaveWorkspaceCanvasProject(project); err != nil {
 			return nil, err
 		}
 	}
-	return ListUserCanvasProjects(userID)
+	return ListWorkspaceCanvasProjects(workspaceID)
 }
 
-func SoftDeleteUserCanvasProjects(
-	userID string,
+func SoftDeleteWorkspaceCanvasProjects(
+	workspaceID string,
 	ids []string,
 	deletedAt string,
 ) error {
@@ -110,7 +110,7 @@ func SoftDeleteUserCanvasProjects(
 	records := make([]model.CanvasProject, 0, len(ids))
 	for _, id := range ids {
 		records = append(records, model.CanvasProject{
-			UserID:    strings.TrimSpace(userID),
+			WorkspaceID:    strings.TrimSpace(workspaceID),
 			ID:        id,
 			CreatedAt: deletedAt,
 			UpdatedAt: deletedAt,
@@ -120,7 +120,7 @@ func SoftDeleteUserCanvasProjects(
 
 	return db.Clauses(clause.OnConflict{
 		Columns: []clause.Column{
-			{Name: "user_id"},
+			{Name: "workspace_id"},
 			{Name: "id"},
 		},
 		DoUpdates: clause.AssignmentColumns([]string{

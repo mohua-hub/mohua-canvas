@@ -25,8 +25,8 @@ func ListSystemAgentSkills() ([]model.AgentSkill, error) {
 	return markAgentSkillsWithFiles(items)
 }
 
-func ListUserAgentSkills(userID string) ([]model.AgentSkill, error) {
-	return listAgentSkills("source = ? AND owner_user_id = ?", model.AgentSkillSourceUser, userID)
+func ListWorkspaceAgentSkills(workspaceID string) ([]model.AgentSkill, error) {
+	return listAgentSkills("source = ? AND owner_workspace_id = ?", model.AgentSkillSourceUser, workspaceID)
 }
 
 func GetAgentSkill(id string) (model.AgentSkill, bool, error) {
@@ -107,12 +107,12 @@ func InitializeAgentSkills(items []model.AgentSkill, files [][]model.AgentSkillF
 	})
 }
 
-func DeleteUserAgentSkill(id string, userID string) error {
+func DeleteWorkspaceAgentSkill(id string, workspaceID string) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
-	return db.Delete(&model.AgentSkill{}, "id = ? AND source = ? AND owner_user_id = ?", id, model.AgentSkillSourceUser, userID).Error
+	return db.Delete(&model.AgentSkill{}, "id = ? AND source = ? AND owner_workspace_id = ?", id, model.AgentSkillSourceUser, workspaceID).Error
 }
 
 func DeleteSystemAgentSkill(id string) error {

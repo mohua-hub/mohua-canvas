@@ -4,7 +4,6 @@
 
 - [快速开始](overview/quick-start.md)
 - [功能介绍](overview/features.md)
-- [Docker 部署](overview/docker.md)
 - [第三方 GitHub 提示词仓库](overview/third-party-prompt-repositories.md)
 
 ## 操作手册
@@ -26,16 +25,13 @@
 - [开源协议](business/license.md)
 - [商务合作](business/business.md)
 
-## 赞助支持
-
-- [打赏支持](support/donate.md)
-
 ## 项目进度
 
-- [待测试](progress/pending-test.md)
-- [TODO](progress/todo.md)
+- [RunningHub 画布独立接口待测试](progress/runninghub-pending-test.md)
+- [设置页面与共享工作区待测试](progress/settings-pending-test.md)
+- [本地运行调整待测试](progress/local-pending-test.md)
 
 ## 说明
 
-- 未登录时画布项目和“我的素材”保存在浏览器本地；登录且账号同步可用时，会同步保存到账号/云端。
+- 项目在本机运行；画布项目和“我的素材”保存在浏览器或桌面 WebView 本地，本地服务连接且同步可用时，同时保存到本机共享工作区。
 - 本地直连模式下，AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。

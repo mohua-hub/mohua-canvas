@@ -7,13 +7,13 @@ import (
 	"gorm.io/gorm"
 )
 
-func ListCreativeWorkflows(userID string) ([]model.CreativeWorkflow, error) {
+func ListCreativeWorkflows(workspaceID string) ([]model.CreativeWorkflow, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
 	}
 	var workflows []model.CreativeWorkflow
-	err = db.Where("scope = ? OR owner_user_id = ?", "public", userID).Order("updated_at DESC").Find(&workflows).Error
+	err = db.Where("scope = ? OR owner_workspace_id = ?", "public", workspaceID).Order("updated_at DESC").Find(&workflows).Error
 	return workflows, err
 }
 

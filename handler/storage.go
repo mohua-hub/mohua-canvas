@@ -21,16 +21,16 @@ func StorageConfig(w http.ResponseWriter, r *http.Request) {
 	OK(w, config)
 }
 
-// SaveUserStorageProvider 保存用户配置的存储提供商。
-func SaveUserStorageProvider(w http.ResponseWriter, r *http.Request) {
+// SaveCustomStorageProvider 保存用户配置的存储提供商。
+func SaveCustomStorageProvider(w http.ResponseWriter, r *http.Request) {
 	var request struct {
-		Provider service.UserStorageProviders `json:"provider"`
+		Provider service.CustomStorageProviders `json:"provider"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		Fail(w, "配置内容格式错误")
 		return
 	}
-	config, err := service.SaveCurrentUserStorageProvider(r.Context(), request.Provider)
+	config, err := service.SaveCurrentWorkspaceStorageProvider(r.Context(), request.Provider)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -38,8 +38,8 @@ func SaveUserStorageProvider(w http.ResponseWriter, r *http.Request) {
 	OK(w, config)
 }
 
-// MeasureUserStorageProvider 统计用户存储提供商的已用容量。
-func MeasureUserStorageProvider(w http.ResponseWriter, r *http.Request) {
+// MeasureCustomStorageProvider 统计用户存储提供商的已用容量。
+func MeasureCustomStorageProvider(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Provider service.StorageObjectProviderInput `json:"provider"`
 	}
@@ -47,7 +47,7 @@ func MeasureUserStorageProvider(w http.ResponseWriter, r *http.Request) {
 		Fail(w, "配置内容格式错误")
 		return
 	}
-	result, err := service.MeasureUserStorageProvider(r.Context(), request.Provider)
+	result, err := service.MeasureCustomStorageProvider(r.Context(), request.Provider)
 	if err != nil {
 		FailError(w, err)
 		return
@@ -76,7 +76,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	if raw := strings.TrimSpace(r.FormValue("provider")); raw != "" {
 		var parsed service.StorageObjectProviderInput
 		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
-			Fail(w, "用户对象存储配置格式错误")
+			Fail(w, "自定义对象存储配置格式错误")
 			return
 		}
 		provider = &parsed
@@ -89,7 +89,7 @@ func UploadFile(w http.ResponseWriter, r *http.Request) {
 	OK(w, object)
 }
 
-// RegisterDirectFile 登记浏览器已直传至用户 WebDAV 的文件。
+// RegisterDirectFile 登记浏览器已直传至自定义 WebDAV 的文件。
 func RegisterDirectFile(w http.ResponseWriter, r *http.Request) {
 	var request service.DirectStorageObjectInput
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
@@ -163,7 +163,7 @@ func FileInfo(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, object)
 }
 
-// AdminMeasureStorageProvider 管理员统计存储容量。
+// AdminMeasureStorageProvider 设置中统计存储容量。
 func AdminMeasureStorageProvider(w http.ResponseWriter, r *http.Request) {
 	var request struct {
 		Index    int                    `json:"index"`

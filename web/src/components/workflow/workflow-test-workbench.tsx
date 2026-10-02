@@ -7,6 +7,7 @@ import { runWorkflowTask, type WorkflowGenerationTask } from "@/services/api/wor
 import type { WorkflowCapability, WorkflowFieldMapping, WorkflowRef } from "@/lib/workflow-channel";
 import { workflowFieldChoiceValues, workflowOptionText, workflowOptionValue } from "@/lib/workflow-field-options";
 import { useConfigStore, type AiConfig } from "@/stores/use-config-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 type WorkflowProvider = "runninghub" | "comfyui";
 type MediaKind = "image" | "video" | "audio";
@@ -16,7 +17,6 @@ type TestFile = { id: string; file: File; url: string };
 
 type WorkflowTestWorkbenchProps = {
     workflowRef: WorkflowRef;
-    token: string;
     provider: WorkflowProvider;
     workflowId: string;
     workflowKind?: "workflow" | "app";
@@ -37,7 +37,8 @@ const initialPositions: NodePositionMap = {
     output: { x: 758, y: 188 },
 };
 
-export function WorkflowTestWorkbench({ workflowRef, token, provider, workflowId, workflowKind = "workflow", title, capability, fields, disabled = false, disabledReason, onBeforeTest }: WorkflowTestWorkbenchProps) {
+export function WorkflowTestWorkbench({ workflowRef, provider, workflowId, workflowKind = "workflow", title, capability, fields, disabled = false, disabledReason, onBeforeTest }: WorkflowTestWorkbenchProps) {
+    const backendConnected = useBackendStore((state) => state.available);
     const { message } = App.useApp();
     const config = useConfigStore((state) => state.config);
     const [prompt, setPrompt] = useState("");
@@ -72,7 +73,7 @@ export function WorkflowTestWorkbench({ workflowRef, token, provider, workflowId
         setError("");
         setProgress(0);
         setStage("等待运行");
-    }, [workflowId, workflowKind, capability, fields, config.size, config.quality, config.vquality, token]);
+    }, [workflowId, workflowKind, capability, fields, config.size, config.quality, config.vquality, backendConnected]);
 
     useEffect(() => {
         filesRef.current = files;
@@ -151,7 +152,7 @@ export function WorkflowTestWorkbench({ workflowRef, token, provider, workflowId
         try {
             const channelId = await onBeforeTest();
             if (abortRef.current !== controller) return;
-            const response = await runWorkflowTask(token, {
+            const response = await runWorkflowTask({
                 ref: { ...workflowRef, channelId },
                 expectedCapability: capability,
                 prompt,

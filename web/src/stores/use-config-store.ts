@@ -8,7 +8,7 @@ import { directAIProviderForProtocol, isWorkflowProtocol, type DirectAIProvider,
 import type { WorkflowRef, WorkflowSummary } from "@/lib/workflow-channel";
 import { apiGet } from "@/services/api/request";
 import type { AdminPublicSettings } from "@/services/api/admin";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 export type LocalModelChannel = {
     id: string;
@@ -17,7 +17,6 @@ export type LocalModelChannel = {
     baseUrl: string;
     apiKey: string;
     models: string[];
-    uploadApiKey?: string;
     bridgeId?: string;
     comfyUrl?: string;
     workflowDir?: string;
@@ -484,9 +483,8 @@ function normalizeModelList(models: string[]) {
 export function useEffectiveConfig() {
     const config = useConfigStore((state) => state.config);
     const modelChannel = useConfigStore((state) => state.publicSettings?.modelChannel || null);
-    const token = useUserStore((state) => state.token);
-    const user = useUserStore((state) => state.user);
-    const canUseRemoteChannel = Boolean(token && user && (user.role === "admin" || modelChannel?.allowUserRemoteChannel === true));
+    const backendConnected = useBackendStore((state) => state.available);
+    const canUseRemoteChannel = Boolean(backendConnected);
     return useMemo(() => resolveEffectiveConfig(config, modelChannel, canUseRemoteChannel), [canUseRemoteChannel, config, modelChannel]);
 }
 
@@ -529,7 +527,6 @@ export function normalizeLocalChannels(config: Partial<AiConfig>): LocalModelCha
         apiKey: channel.apiKey || "",
         models: Array.isArray(channel.models) ? channel.models.filter(Boolean) : [],
         ...(isWorkflowProtocol(channel.protocol || "") ? {
-            uploadApiKey: channel.uploadApiKey || "",
             bridgeId: channel.bridgeId || "",
             comfyUrl: channel.comfyUrl || "",
             workflowDir: channel.workflowDir || "",

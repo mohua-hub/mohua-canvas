@@ -1,6 +1,6 @@
 import { mimoTextModels } from "@/lib/mimo-tts";
 import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig } from "@/lib/gemini";
-import { aiApiUrl, aiHeaders, ImageRequestError, isEventStreamResponse, readJsonServerSentEvents, refreshRemoteUser } from "@/services/api/image";
+import { aiApiUrl, aiHeaders, ImageRequestError, isEventStreamResponse, readJsonServerSentEvents } from "@/services/api/image";
 import { imageToDataUrl } from "@/services/image-storage";
 import { channelProtocolForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasAgentProtocolMessage, CanvasAgentToolCall, CanvasAgentToolMode } from "@/app/(user)/canvas/types";
@@ -251,7 +251,6 @@ async function requestCompletion(config: CanvasAgentAiConfig, systemPrompt: stri
 
     const inputTokens = payload.usage?.prompt_tokens || payload.data?.usage?.prompt_tokens;
     calibrateCanvasAgentTokenEstimate(canvasAgentTokenCalibrationKey(config), { systemPrompt, messages, tools }, inputTokens);
-    refreshRemoteUser(config);
     let toolError: string | undefined;
     const toolCalls = (message.tool_calls || []).flatMap((toolCall, index) => {
         const name = toolCall.function?.name?.trim();
@@ -340,7 +339,6 @@ async function requestResponsesCompletion(config: CanvasAgentAiConfig, systemPro
     });
     const inputTokens = result.usage?.input_tokens;
     calibrateCanvasAgentTokenEstimate(canvasAgentTokenCalibrationKey(config), { systemPrompt, messages, tools }, inputTokens);
-    refreshRemoteUser(config);
     return {
         content: typeof result.output_text === "string" ? result.output_text : output.flatMap((item) => item.type === "message" ? item.content || [] : []).map((item) => item.type === "output_text" && typeof item.text === "string" ? item.text : "").join(""),
         responseItems,
@@ -424,7 +422,6 @@ async function requestGeminiCompletion(config: CanvasAgentAiConfig, systemPrompt
     const usageMetadata = payload.usageMetadata && typeof payload.usageMetadata === "object" ? payload.usageMetadata as Record<string, unknown> : {};
     const inputTokens = typeof usageMetadata.promptTokenCount === "number" ? usageMetadata.promptTokenCount : undefined;
     calibrateCanvasAgentTokenEstimate(canvasAgentTokenCalibrationKey(config), { systemPrompt, messages, tools }, inputTokens);
-    refreshRemoteUser(config);
     let toolError: string | undefined;
     const toolCalls = parts.flatMap((part, index) => {
         const call = part.functionCall && typeof part.functionCall === "object" ? part.functionCall as Record<string, unknown> : null;

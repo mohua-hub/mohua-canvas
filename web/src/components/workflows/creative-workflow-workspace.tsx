@@ -14,11 +14,11 @@ import { canvasThemes, type CanvasTheme } from "@/lib/canvas-theme";
 import { formatBytes, formatDuration, getDataUrlByteSize, readImageMeta } from "@/lib/image-utils";
 import { createCanvasImageTask, requestEdit, requestGeneration, requestImageQuestion, type CanvasImageTask } from "@/services/api/image";
 import { saveImageGenerationLogs } from "@/services/api/generation-logs";
-import { deleteUserWorkflow, draftUserWorkflow, fetchUserConfig, fetchUserWorkflows, saveUserWorkflow, type CreativeWorkflowRecord } from "@/services/api/user-config";
+import { deleteWorkspaceWorkflow, draftWorkspaceWorkflow, fetchWorkspaceConfig, fetchWorkspaceWorkflows, saveWorkspaceWorkflow, type CreativeWorkflowRecord } from "@/services/api/workspace-config";
 import { deleteStoredImages, imageToDataUrl, uploadImage } from "@/services/image-storage";
 import { channelProtocolForConfig, defaultConfig, localChannelForActiveModel, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { useThemeStore } from "@/stores/use-theme-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 import type { ReferenceImage } from "@/types/image";
 
 type WorkflowVariableType = "text" | "textarea" | "number" | "select" | "boolean";
@@ -55,7 +55,7 @@ type WorkflowSeriesConfig = {
 
 type CreativeWorkflow = {
     id: string;
-    ownerUserId?: string;
+    ownerWorkspaceId?: string;
     scope: "private" | "public";
     editable?: boolean;
     mode: WorkflowMode;
@@ -221,8 +221,8 @@ export function CreativeWorkflowWorkspace({
     const effectiveConfig = useEffectiveConfig();
     const isAiConfigReady = useConfigStore((state) => state.isAiConfigReady);
     const openConfigDialog = useConfigStore((state) => state.openConfigDialog);
-    const token = useUserStore((state) => state.token);
-    const isUserReady = useUserStore((state) => state.isReady);
+    const backendConnected = useBackendStore((state) => state.available);
+    const isBackendReady = useBackendStore((state) => state.isReady);
     const [workflows, setWorkflows] = useState<CreativeWorkflow[]>([]);
     const [editingWorkflow, setEditingWorkflow] = useState<CreativeWorkflow | null>(null);
     const [runningWorkflow, setRunningWorkflow] = useState<CreativeWorkflow | null>(null);
@@ -271,9 +271,9 @@ export function CreativeWorkflowWorkspace({
     const agentModelInfo = useMemo(() => describeModelSelection(effectiveConfig, agentModel, agentChannelId), [agentChannelId, agentModel, effectiveConfig]);
 
     useEffect(() => {
-        if (!isUserReady) return;
+        if (!isBackendReady) return;
         void refreshWorkflows();
-    }, [isUserReady, token]);
+    }, [isBackendReady, backendConnected]);
 
     useEffect(() => {
         if (!agentTextModel && effectiveConfig.textModel) setAgentTextModel(effectiveConfig.textModel);
@@ -292,12 +292,12 @@ export function CreativeWorkflowWorkspace({
     }, [runningWorkflow?.id, runningWorkflow?.mode, seriesDrafts]);
 
     const refreshWorkflows = async () => {
-        if (token) {
+        if (backendConnected) {
             try {
-                const config = await fetchUserConfig(token);
+                const config = await fetchWorkspaceConfig();
                 workflowSyncEnabledRef.current = config.syncCapabilities?.workflows === true;
                 if (!workflowSyncEnabledRef.current) throw new Error("workflow sync unavailable");
-                const remote = await fetchUserWorkflows<CreativeWorkflow>(token);
+                const remote = await fetchWorkspaceWorkflows<CreativeWorkflow>();
                 const workflows = remote.map(recordToWorkflow).sort((a, b) => b.updatedAt - a.updatedAt);
                 if (workflows.length) {
                     setWorkflows(workflows);
@@ -306,11 +306,11 @@ export function CreativeWorkflowWorkspace({
                 }
                 const local = await workflowStore.getItem<CreativeWorkflow[]>(WORKFLOW_STORE_KEY);
                 const seed = local?.length ? local.map(normalizeWorkflow) : createStarterWorkflows(effectiveConfig);
-                const saved = await Promise.all(seed.map((workflow) => saveUserWorkflow(token, workflowToRecord(normalizeWorkflow(workflow)))));
+                const saved = await Promise.all(seed.map((workflow) => saveWorkspaceWorkflow(workflowToRecord(normalizeWorkflow(workflow)))));
                 setWorkflows(saved.map(recordToWorkflow).sort((a, b) => b.updatedAt - a.updatedAt));
                 return;
             } catch {
-                // Use local workflows when account sync is unavailable.
+                // Use local workflows when workspace sync is unavailable.
             }
         }
         const stored = await workflowStore.getItem<CreativeWorkflow[]>(WORKFLOW_STORE_KEY);
@@ -470,15 +470,15 @@ export function CreativeWorkflowWorkspace({
         const now = Date.now();
         let normalized = normalizeWorkflow({ ...workflow, name: workflow.name.trim(), category: workflow.category.trim(), updatedAt: now, createdAt: workflow.createdAt || now });
         try {
-            if (token && workflowSyncEnabledRef.current) {
-                normalized = recordToWorkflow(await saveUserWorkflow(token, workflowToRecord(normalized)));
+            if (backendConnected && workflowSyncEnabledRef.current) {
+                normalized = recordToWorkflow(await saveWorkspaceWorkflow(workflowToRecord(normalized)));
                 await refreshWorkflows();
             } else {
                 await saveWorkflows([normalized, ...workflows.filter((item) => item.id !== normalized.id)]);
             }
         } catch (error) {
             await saveWorkflows([normalized, ...workflows.filter((item) => item.id !== normalized.id)]);
-            message.warning(error instanceof Error && error.message === "接口不存在" ? "工作流同步接口不可用，已先保存到本地。请重启后端后再同步到账号。" : "远端保存失败，已先保存到本地");
+            message.warning(error instanceof Error && error.message === "接口不存在" ? "工作流同步接口不可用，已先保存到本地。请重启后端后再同步到后端。" : "远端保存失败，已先保存到本地");
         }
         if (agentDraft?.id === workflow.id) {
             await cleanupAgentReferences();
@@ -490,10 +490,10 @@ export function CreativeWorkflowWorkspace({
 
     const duplicateWorkflow = async (workflow: CreativeWorkflow) => {
         const now = Date.now();
-        const copy = normalizeWorkflow({ ...workflow, id: nanoid(), ownerUserId: undefined, editable: true, scope: "private", name: `${workflow.name} 副本`, createdAt: now, updatedAt: now, lastRunAt: undefined });
+        const copy = normalizeWorkflow({ ...workflow, id: nanoid(), ownerWorkspaceId: undefined, editable: true, scope: "private", name: `${workflow.name} 副本`, createdAt: now, updatedAt: now, lastRunAt: undefined });
         try {
-            if (token && workflowSyncEnabledRef.current) {
-                await saveUserWorkflow(token, workflowToRecord(copy));
+            if (backendConnected && workflowSyncEnabledRef.current) {
+                await saveWorkspaceWorkflow(workflowToRecord(copy));
                 await refreshWorkflows();
             } else {
                 await saveWorkflows([copy, ...workflows]);
@@ -513,8 +513,8 @@ export function CreativeWorkflowWorkspace({
             okButtonProps: { danger: true },
             onOk: async () => {
                 try {
-                    if (token && workflowSyncEnabledRef.current) {
-                        await deleteUserWorkflow(token, workflow.id);
+                    if (backendConnected && workflowSyncEnabledRef.current) {
+                        await deleteWorkspaceWorkflow(workflow.id);
                         await refreshWorkflows();
                     } else {
                         await saveWorkflows(workflows.filter((item) => item.id !== workflow.id));
@@ -534,8 +534,8 @@ export function CreativeWorkflowWorkspace({
             message.error("请输入工作流需求");
             return;
         }
-        if (!token) {
-            message.warning("请先登录后使用工作流创建 Agent");
+        if (!backendConnected) {
+            message.warning("请先连接后端服务后使用工作流创建 Agent");
             return;
         }
         setAgentLoading(true);
@@ -549,7 +549,7 @@ export function CreativeWorkflowWorkspace({
             }
             const localChannel = effectiveConfig.channelMode === "local" ? localChannelForActiveModel(textConfig) : null;
             const referenceDataUrls = await Promise.all(agentReferences.map((image) => imageToDataUrl(image)));
-            const result = await draftUserWorkflow<Partial<CreativeWorkflow>>(token, {
+            const result = await draftWorkspaceWorkflow<Partial<CreativeWorkflow>>({
                 prompt: text,
                 scope: agentScope,
                 model: textModel,
@@ -716,7 +716,7 @@ export function CreativeWorkflowWorkspace({
             ...value,
         ]);
         message.success(seriesTitle ? `${seriesTitle} 已开始生成` : "工作流任务已开始");
-        if (runConfig.channelMode === "remote" || (runConfig.channelMode === "local" && token)) {
+        if (runConfig.channelMode === "remote" || (runConfig.channelMode === "local" && backendConnected)) {
             return createWorkflowImageTasks({ taskId, workflow, prompt: promptSnapshot, inputSnapshot, references: referencesSnapshot, runConfig, taskConfig, model, count, startedAt, seriesDraftId, seriesTitle, seriesIndex });
         }
         return executeWorkflowTask({ taskId, workflow, prompt: promptSnapshot, inputSnapshot, references: referencesSnapshot, runConfig, taskConfig, model, count, startedAt, performanceStartedAt, seriesDraftId, seriesTitle, seriesIndex });
@@ -724,7 +724,7 @@ export function CreativeWorkflowWorkspace({
 
     const saveWorkflowTaskLog = async (log: ImageHistoryLog) => {
         await imageLogStore.setItem(log.id, serializeHistoryLog(log));
-        if (token) await saveImageGenerationLogs(token, [serializeHistoryLog(log)]).catch(() => undefined);
+        if (backendConnected) await saveImageGenerationLogs([serializeHistoryLog(log)]).catch(() => undefined);
     };
 
     const createWorkflowImageTasks = async ({
@@ -876,7 +876,7 @@ export function CreativeWorkflowWorkspace({
                 void workflowStore.setItem(WORKFLOW_STORE_KEY, next);
                 return next;
             });
-            if (token && workflowSyncEnabledRef.current && workflow.editable !== false) void saveUserWorkflow(token, workflowToRecord({ ...workflow, lastRunAt: finishedAt, updatedAt: finishedAt })).catch(() => {});
+            if (backendConnected && workflowSyncEnabledRef.current && workflow.editable !== false) void saveWorkspaceWorkflow(workflowToRecord({ ...workflow, lastRunAt: finishedAt, updatedAt: finishedAt })).catch(() => {});
             setRunningWorkflow((value) => (value?.id === workflow.id ? { ...value, lastRunAt: finishedAt, updatedAt: finishedAt } : value));
             const nextResults = storedImages.map((image) => ({
                 id: image.id,
@@ -1966,7 +1966,7 @@ function inferVariableOptions(variable: WorkflowVariable) {
 function workflowToRecord(workflow: CreativeWorkflow): CreativeWorkflowRecord<CreativeWorkflow> {
     return {
         id: workflow.id,
-        ownerUserId: workflow.ownerUserId,
+        ownerWorkspaceId: workflow.ownerWorkspaceId,
         scope: workflow.scope === "public" ? "public" : "private",
         name: workflow.name,
         category: workflow.category,
@@ -1984,7 +1984,7 @@ function recordToWorkflow(record: CreativeWorkflowRecord<CreativeWorkflow>): Cre
     return normalizeWorkflow({
         ...data,
         id: record.id || data.id,
-        ownerUserId: record.ownerUserId,
+        ownerWorkspaceId: record.ownerWorkspaceId,
         scope: record.scope === "public" ? "public" : "private",
         editable: record.editable,
         name: record.name || data.name || "",

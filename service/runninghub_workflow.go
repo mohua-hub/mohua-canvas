@@ -41,7 +41,7 @@ func InspectRunningHub(ctx context.Context, input RunningHubInspectInput) (model
 	input.WorkflowID = strings.TrimSpace(input.WorkflowID)
 	input.APIKey = strings.TrimSpace(input.APIKey)
 	if input.WorkflowID == "" || input.APIKey == "" {
-		return model.WorkflowEntry{}, errors.New("请填写工作流 ID 和积分 API Key")
+		return model.WorkflowEntry{}, errors.New("请填写工作流 ID 和API Key")
 	}
 	if input.Kind != "workflow" && input.Kind != "app" {
 		return model.WorkflowEntry{}, errors.New("工作流类型无效")
@@ -103,7 +103,7 @@ func runningHubAppEntry(input RunningHubInspectInput, response map[string]any) (
 	}
 	title := strings.TrimSpace(input.Title)
 	if title == "" {
-		title = input.WorkflowID
+		title = firstNonEmpty(stringValue(data["webappName"]), input.WorkflowID)
 	}
 	return model.WorkflowEntry{
 		Provider:   "runninghub",
@@ -161,16 +161,13 @@ func runningHubRequestMethod(ctx context.Context, method, endpoint string, query
 		requestURL.RawQuery = query.Encode()
 	}
 	var requestBody io.Reader
-	secret := ""
+	secret := apiKey
 	if payload != nil {
 		encoded, err := json.Marshal(payload)
 		if err != nil {
 			return err
 		}
 		requestBody = bytes.NewReader(encoded)
-		if body, ok := payload.(map[string]any); ok {
-			secret, _ = body["apiKey"].(string)
-		}
 		if capture != nil {
 			capture.RequestBody = string(workflowLogJSON(string(encoded), secret))
 		}

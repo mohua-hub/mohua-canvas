@@ -22,25 +22,25 @@ func UpdateCanvasImageTask(task model.CanvasImageTask) (model.CanvasImageTask, e
 	}
 
 	return task, db.Model(&model.CanvasImageTask{}).
-		Where("user_id = ? AND id = ?", task.UserID, task.ID).
+		Where("workspace_id = ? AND id = ?", task.WorkspaceID, task.ID).
 		Select("*").
 		Updates(&task).Error
 }
 
-func GetUserCanvasImageTask(userID string, id string) (model.CanvasImageTask, bool, error) {
+func GetWorkspaceCanvasImageTask(workspaceID string, id string) (model.CanvasImageTask, bool, error) {
 	db, err := DB()
 	if err != nil {
 		return model.CanvasImageTask{}, false, err
 	}
 	var task model.CanvasImageTask
-	err = db.First(&task, "user_id = ? AND id = ?", userID, id).Error
+	err = db.First(&task, "workspace_id = ? AND id = ?", workspaceID, id).Error
 	if err != nil {
 		return model.CanvasImageTask{}, false, nil
 	}
 	return task, true, nil
 }
 
-func ListUserCanvasImageTasks(userID string, sources []string, limit int) ([]model.CanvasImageTask, error) {
+func ListWorkspaceCanvasImageTasks(workspaceID string, sources []string, limit int) ([]model.CanvasImageTask, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -49,7 +49,7 @@ func ListUserCanvasImageTasks(userID string, sources []string, limit int) ([]mod
 		limit = 100
 	}
 	var tasks []model.CanvasImageTask
-	query := db.Where("user_id = ?", userID)
+	query := db.Where("workspace_id = ?", workspaceID)
 	if len(sources) > 0 {
 		query = query.Where("source IN ?", sources)
 	}
@@ -61,7 +61,7 @@ func ListUserCanvasImageTasks(userID string, sources []string, limit int) ([]mod
 	return tasks, err
 }
 
-func BatchUserCanvasImageTasks(userID string, ids []string) ([]model.CanvasImageTask, error) {
+func BatchWorkspaceCanvasImageTasks(workspaceID string, ids []string) ([]model.CanvasImageTask, error) {
 	db, err := DB()
 	if err != nil {
 		return nil, err
@@ -71,16 +71,16 @@ func BatchUserCanvasImageTasks(userID string, ids []string) ([]model.CanvasImage
 		return []model.CanvasImageTask{}, nil
 	}
 	var tasks []model.CanvasImageTask
-	err = db.Where("user_id = ? AND id IN ?", userID, keys).Find(&tasks).Error
+	err = db.Where("workspace_id = ? AND id IN ?", workspaceID, keys).Find(&tasks).Error
 	return tasks, err
 }
 
-func DeleteUserCanvasImageTask(userID string, id string) error {
+func DeleteWorkspaceCanvasImageTask(workspaceID string, id string) error {
 	db, err := DB()
 	if err != nil {
 		return err
 	}
-	return db.Where("user_id = ? AND id = ?", userID, strings.TrimSpace(id)).Delete(&model.CanvasImageTask{}).Error
+	return db.Where("workspace_id = ? AND id = ?", workspaceID, strings.TrimSpace(id)).Delete(&model.CanvasImageTask{}).Error
 }
 
 func HasActiveCanvasImageTasks() (bool, error) {
@@ -105,7 +105,7 @@ func DeleteFinishedCanvasImageTasksBefore(before string) error {
 		Delete(&model.CanvasImageTask{}).Error
 }
 
-func DeleteUserCanvasTasks(userID string, sourceID string, nodeIDs []string) error {
+func DeleteWorkspaceCanvasTasks(workspaceID string, sourceID string, nodeIDs []string) error {
 	db, err := DB()
 	if err != nil {
 		return err
@@ -116,8 +116,8 @@ func DeleteUserCanvasTasks(userID string, sourceID string, nodeIDs []string) err
 	return db.Transaction(func(tx *gorm.DB) error {
 		deleteTasks := func(task any) error {
 			query := tx.Where(
-				"user_id = ? AND source = ? AND source_id = ?",
-				userID,
+				"workspace_id = ? AND source = ? AND source_id = ?",
+				workspaceID,
 				"canvas",
 				sourceID,
 			)

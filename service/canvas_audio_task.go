@@ -9,19 +9,15 @@ import (
 )
 
 type CanvasAudioTaskCreateInput struct {
-	UserID          string
-	UserDisplayName string
+	WorkspaceID          string
 	SourceID        string
 	NodeID          string
 	ClientTaskID    string
 	Model           string
 	ChannelID       string
-	UserChannelID   string
+	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
-	Credits         float64
-	BillingName     string
-	BillingPath     string
 	Prompt          string
 	Endpoint        string
 	ContentType     string
@@ -32,17 +28,15 @@ func CreateCanvasAudioTask(input CanvasAudioTaskCreateInput) (model.CanvasAudioT
 	current := now()
 	task := model.CanvasAudioTask{
 		ID:              firstVideoTaskValue(input.ClientTaskID, "canvas_audio_task_"+uuid.NewString()),
-		UserID:          strings.TrimSpace(input.UserID),
-		UserDisplayName: strings.TrimSpace(input.UserDisplayName),
+		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
 		Source:          "canvas",
 		SourceID:        strings.TrimSpace(input.SourceID),
 		NodeID:          strings.TrimSpace(input.NodeID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		UserChannelID:   strings.TrimSpace(input.UserChannelID),
+		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
-		Credits:         input.Credits,
 		Status:          "queued",
 		Progress:        0,
 		Prompt:          strings.TrimSpace(input.Prompt),
@@ -52,14 +46,11 @@ func CreateCanvasAudioTask(input CanvasAudioTaskCreateInput) (model.CanvasAudioT
 		CreatedAt:       current,
 		UpdatedAt:       current,
 	}
-	if input.WorkflowRef != "" {
-		return task, ConsumeUserCredits(task.UserID, input.BillingName, task.Credits, input.BillingPath, &task)
-	}
 	return repository.SaveCanvasAudioTask(task)
 }
 
-func GetUserCanvasAudioTask(userID string, id string) (model.CanvasAudioTask, bool, error) {
-	return repository.GetUserCanvasAudioTask(strings.TrimSpace(userID), strings.TrimSpace(id))
+func GetWorkspaceCanvasAudioTask(workspaceID string, id string) (model.CanvasAudioTask, bool, error) {
+	return repository.GetWorkspaceCanvasAudioTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
 func SaveCanvasAudioTask(task model.CanvasAudioTask) (model.CanvasAudioTask, error) {

@@ -86,34 +86,29 @@ async fn start_server(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::E
         }
     });
 
-    let mut api_base_url = std::env::var("API_BASE_URL").ok().map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
-    let bridge_server_url = api_base_url.clone().unwrap_or_default();
-    if api_base_url.is_none() {
-        let data_dir = app.path().app_data_dir()?;
-        fs::create_dir_all(&data_dir)?;
-        let (api_events, api_child) = app.shell().sidecar("server")?
-            .env("MOHUA_DESKTOP", "1")
-            .env("GIN_MODE", "release")
-            .env("STORAGE_DRIVER", "sqlite")
-            .env("DATABASE_DSN", data_dir.join("infinite-canvas.db"))
-            .env("AI_LOG_DIR", data_dir.join("logs").join("ai-calls"))
-            .current_dir(&data_dir)
-            .spawn()?;
-        app.state::<Server>().add(api_child);
-        forward_events(api_events, sender.clone(), "Go");
-    }
+    let data_dir = app.path().app_data_dir()?;
+    fs::create_dir_all(&data_dir)?;
+    let (api_events, api_child) = app.shell().sidecar("server")?
+        .env("MOHUA_DESKTOP", "1")
+        .env("GIN_MODE", "release")
+        .env("DATABASE_DSN", data_dir.join("infinite-canvas.db"))
+        .env("AI_LOG_DIR", data_dir.join("logs").join("ai-calls"))
+        .current_dir(&data_dir)
+        .spawn()?;
+    app.state::<Server>().add(api_child);
+    forward_events(api_events, sender.clone(), "Go");
 
+    let mut api_port: Option<String> = None;
     let mut next_started = false;
     loop {
-        if let Some(url) = api_base_url.take() {
+        if let Some(port) = api_port.take() {
             let (next_events, child) = app.shell().sidecar("node")?
                 .args([runtime.join("desktop-server.cjs")])
                 .current_dir(&runtime)
                 .env("NODE_ENV", "production")
                 .env("NEXT_TELEMETRY_DISABLED", "1")
                 .env("MOHUA_DESKTOP", "1")
-                .env("MOHUA_BRIDGE_SERVER_URL", &bridge_server_url)
-                .env("API_BASE_URL", url)
+                .env("API_PORT", port)
                 .spawn()?;
             app.state::<Server>().add(child);
             forward_events(next_events, sender.clone(), "Next");
@@ -125,8 +120,8 @@ async fn start_server(app: tauri::AppHandle) -> Result<(), Box<dyn std::error::E
                 let line = String::from_utf8_lossy(&bytes);
                 let _ = writeln!(log, "[{name}] {}", line.trim_end());
                 if name == "Go" && !next_started {
-                    if let Some(url) = line.trim().strip_prefix("MOHUA_API_READY=") {
-                        api_base_url = Some(url.to_string());
+                    if let Some(port) = line.trim().strip_prefix("MOHUA_API_READY=") {
+                        api_port = Some(port.to_string());
                     }
                 }
                 if name == "Next" && line.trim() == "MOHUA_DESKTOP_READY" {

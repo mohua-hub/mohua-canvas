@@ -9,9 +9,9 @@ import type { WorkflowChannelSettings } from "@/components/workflow/workflow-cha
 import { GrokTtsVoiceSelect } from "@/components/grok-tts-voice-select";
 import { ModelPicker } from "@/components/model-picker";
 import { fetchImageModels } from "@/services/api/image";
-import { fetchUserConfig, measureUserStorageProvider, syncUserModelConfig, syncUserStorageProvider } from "@/services/api/user-config";
+import { fetchWorkspaceConfig, measureCustomStorageProvider, syncWorkspaceModelConfig, syncCustomStorageProvider } from "@/services/api/workspace-config";
 import { clearStorageConfigCache as clearFileStorageCache } from "@/services/file-storage";
-import { clearStorageConfigCache as clearImageStorageCache, defaultUserStorageProvider, defaultUserWebDAVStorageProvider, loadStorageConfig, loadUserS3StorageProvider, loadUserWebDAVStorageProvider, saveUserStorageProvider, saveUserWebDAVStorageProvider, type UserStorageProvider } from "@/services/image-storage";
+import { clearStorageConfigCache as clearImageStorageCache, defaultCustomStorageProvider, defaultCustomWebDAVStorageProvider, loadStorageConfig, loadCustomS3StorageProvider, loadCustomWebDAVStorageProvider, saveCustomStorageProvider, saveCustomWebDAVStorageProvider, type CustomStorageProvider } from "@/services/image-storage";
 import { audioFormatOptions, audioVoiceOptions, glmTtsFormatOptions, glmTtsVoiceOptions, isGlmTtsModel, normalizeAudioSpeedValue, normalizeGlmTtsFormat, normalizeGlmTtsSpeed, normalizeGlmTtsVoice } from "@/lib/audio-generation";
 import { grokTtsFormatOptions, grokTtsLanguageOptions, isGrok2APITtsConfig, normalizeGrokTtsFormat, normalizeGrokTtsLanguage, normalizeGrokTtsSpeed } from "@/lib/grok-tts";
 import { isGeminiConfig, isGeminiTtsModel } from "@/lib/gemini";
@@ -21,7 +21,7 @@ import { isWorkflowProtocol, modelChannelApiKeyUrls, modelChannelDefaultBaseUrls
 import type { WorkflowChannelData, WorkflowEntry } from "@/lib/workflow-channel";
 import { listWorkflowChannels, readWorkflowChannel, replaceWorkflowChannels, saveWorkflowChannel } from "@/services/workflow-channel-storage";
 import { filterChannelModelsByCapability, normalizeLocalChannels, useConfigStore, useEffectiveConfig, type AiConfig, type LocalModelChannel, type ModelCapability } from "@/stores/use-config-store";
-import { useUserStore } from "@/stores/use-user-store";
+import { useBackendStore } from "@/stores/use-backend-store";
 
 type ModelGroup = {
     capability: ModelCapability;
@@ -48,12 +48,12 @@ export function AppConfigModal() {
     const [savingConfig, setSavingConfig] = useState(false);
     const [modelSelectChannelId, setModelSelectChannelId] = useState("");
     const [workflowEntries, setWorkflowEntries] = useState<WorkflowEntry[]>([]);
-    const accountConfigRef = useRef<{ ready: boolean; workflowChannels?: WorkflowChannelData[] }>({ ready: false });
+    const workspaceConfigRef = useRef<{ ready: boolean; workflowChannels?: WorkflowChannelData[] }>({ ready: false });
     const [remoteStorageSyncEnabled, setRemoteStorageSyncEnabled] = useState(false);
     const [remoteWebDAVStorageSyncEnabled, setRemoteWebDAVStorageSyncEnabled] = useState(false);
-    const [allowUserStorageProvider, setAllowUserStorageProvider] = useState(false);
-    const [userStorage, setUserStorage] = useState(() => defaultUserStorageProvider());
-    const [userWebDAVStorage, setUserWebDAVStorage] = useState(() => defaultUserWebDAVStorageProvider());
+    const [allowCustomStorageProvider, setAllowCustomStorageProvider] = useState(false);
+    const [customStorage, setCustomStorage] = useState(() => defaultCustomStorageProvider());
+    const [customWebDAVStorage, setCustomWebDAVStorage] = useState(() => defaultCustomWebDAVStorageProvider());
     const [measuringStorageType, setMeasuringStorageType] = useState<"s3" | "webdav" | null>(null);
     const [storageUsageText, setStorageUsageText] = useState("");
     const [webDAVStorageUsageText, setWebDAVStorageUsageText] = useState("");
@@ -64,17 +64,16 @@ export function AppConfigModal() {
     const setConfigDialogOpen = useConfigStore((state) => state.setConfigDialogOpen);
     const clearPromptContinue = useConfigStore((state) => state.clearPromptContinue);
     const publicSettings = useConfigStore((state) => state.publicSettings);
-    const token = useUserStore((state) => state.token);
-    const user = useUserStore((state) => state.user);
+    const backendConnected = useBackendStore((state) => state.available);
     const effectiveConfig = useEffectiveConfig();
     const modelChannel = publicSettings?.modelChannel;
-    const isLoggedIn = Boolean(token && user);
-    const canUseRemoteChannel = isLoggedIn && (user?.role === "admin" || modelChannel?.allowUserRemoteChannel === true);
-    const allowCustomChannel = isLoggedIn && modelChannel?.allowCustomChannel === true;
+    const backendAvailable = Boolean(backendConnected);
+    const canUseRemoteChannel = Boolean(backendConnected);
+    const allowCustomChannel = backendAvailable && modelChannel?.allowCustomChannel === true;
     const effectiveMode = canUseRemoteChannel ? (allowCustomChannel ? config.channelMode : "remote") : "local";
     const localModelConfig: AiConfig = effectiveMode === "local" && config.channelMode !== "local" ? { ...config, channelMode: "local" } : config;
     const modelConfig = effectiveMode === "remote" ? effectiveConfig : localModelConfig;
-    const canUseUserStorageProvider = allowUserStorageProvider;
+    const canUseCustomStorageProvider = allowCustomStorageProvider;
     const glmTts = isGlmTtsModel(config.audioModel);
     const grokTts = isGrok2APITtsConfig({ ...modelConfig, model: config.audioModel, audioModel: config.audioModel }, config.audioModel);
     const geminiTts = isGeminiTtsModel(config.audioModel) && isGeminiConfig({ ...modelConfig, model: config.audioModel, audioModel: config.audioModel }, config.audioModel);
@@ -85,23 +84,21 @@ export function AppConfigModal() {
         if (!modelSelectChannel || !isWorkflowProtocol(modelSelectChannel.protocol)) return;
         const protocol = modelSelectChannel.protocol;
         let canceled = false;
-		void readWorkflowChannel(user?.id || "guest", protocol, modelSelectChannel.id)
+		void readWorkflowChannel(protocol, modelSelectChannel.id)
             .then((items) => { if (!canceled) setWorkflowEntries(items); })
             .catch((error) => { if (!canceled) message.error(error instanceof Error ? error.message : "读取工作流配置失败"); });
         return () => { canceled = true; };
-    }, [modelSelectChannelId, modelSelectChannel?.protocol, user?.id]);
+    }, [modelSelectChannelId, modelSelectChannel?.protocol]);
 
     useEffect(() => {
-        setUserStorage(loadUserS3StorageProvider() || defaultUserStorageProvider());
-        setUserWebDAVStorage(loadUserWebDAVStorageProvider() || defaultUserWebDAVStorageProvider());
-        accountConfigRef.current = { ready: false };
-        if (!isConfigOpen || !token || !user?.id) return;
-        const accountToken = token;
-        const accountId = user.id;
+        setCustomStorage(loadCustomS3StorageProvider() || defaultCustomStorageProvider());
+        setCustomWebDAVStorage(loadCustomWebDAVStorageProvider() || defaultCustomWebDAVStorageProvider());
+        workspaceConfigRef.current = { ready: false };
+        if (!isConfigOpen || !backendConnected) return;
         let canceled = false;
-        void fetchUserConfig(accountToken)
+        void fetchWorkspaceConfig()
             .then(async (payload) => {
-                if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
+                if (canceled || !useBackendStore.getState().available) return;
                 const remoteConfig = payload.modelConfig;
                 const remoteWorkflowChannels = remoteConfig?.workflowChannels;
                 const syncS3 = remoteConfig?.syncStorageConfig === true;
@@ -113,47 +110,48 @@ export function AppConfigModal() {
                     delete modelFields.workflowSyncTouched;
                     if (workflowChannels !== undefined) {
                         try {
-                            await replaceWorkflowChannels(accountId, workflowChannels);
-                            if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
+                            await replaceWorkflowChannels(workflowChannels);
+                            if (canceled || !useBackendStore.getState().available) return;
                             updateConfig("workflowSyncTouched", true);
                         } catch {
-                            if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
+                            if (canceled || !useBackendStore.getState().available) return;
                             updateConfig("workflowSyncTouched", false);
                         }
                     }
-                    if (canceled || useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) return;
+                    if (canceled || !useBackendStore.getState().available) return;
                     Object.entries(modelFields)
                         .forEach(([key, value]) => updateConfig(key as keyof AiConfig, value as never));
                 }
-                accountConfigRef.current = { ready: true, workflowChannels: remoteWorkflowChannels };
+                workspaceConfigRef.current = { ready: true, workflowChannels: remoteWorkflowChannels };
+                if (remoteWorkflowChannels === undefined) updateConfig("workflowSyncTouched", true);
                 updateConfig("syncStorageConfig", syncS3);
                 updateConfig("syncWebDAVStorageConfig", syncWebDAV);
                 if (syncS3 && payload.storageProvider?.s3) {
-                    const next = { ...defaultUserStorageProvider(), ...payload.storageProvider.s3, type: "s3" as const };
-                    setUserStorage(next);
-                    saveUserStorageProvider(next);
+                    const next = { ...defaultCustomStorageProvider(), ...payload.storageProvider.s3, type: "s3" as const };
+                    setCustomStorage(next);
+                    saveCustomStorageProvider(next);
                 }
                 if (syncWebDAV && payload.storageProvider?.webdav) {
-                    const next = { ...defaultUserWebDAVStorageProvider(), ...payload.storageProvider.webdav, type: "webdav" as const };
-                    setUserWebDAVStorage(next);
-                    saveUserWebDAVStorageProvider(next);
+                    const next = { ...defaultCustomWebDAVStorageProvider(), ...payload.storageProvider.webdav, type: "webdav" as const };
+                    setCustomWebDAVStorage(next);
+                    saveCustomWebDAVStorageProvider(next);
                 }
             })
             .catch(() => { });
         return () => {
             canceled = true;
         };
-    }, [isConfigOpen, token, updateConfig, user?.id]);
+    }, [isConfigOpen, backendConnected, updateConfig]);
 
     useEffect(() => {
         if (!isConfigOpen) return;
         let canceled = false;
         void loadStorageConfig()
             .then((storage) => {
-                if (!canceled) setAllowUserStorageProvider(storage.allowUserProvider === true);
+                if (!canceled) setAllowCustomStorageProvider(storage.allowCustomProvider === true);
             })
             .catch(() => {
-                if (!canceled) setAllowUserStorageProvider(false);
+                if (!canceled) setAllowCustomStorageProvider(false);
             });
         return () => {
             canceled = true;
@@ -163,46 +161,46 @@ export function AppConfigModal() {
     const finishConfig = async () => {
         const localIncomplete = effectiveMode === "local" && normalizeLocalChannels(config).filter((channel) => !isWorkflowProtocol(channel.protocol)).some((channel) => !channel.baseUrl.trim() || !channel.apiKey.trim());
         const modelIncomplete = !modelConfig.imageModel.trim() || !modelConfig.videoModel.trim() || !modelConfig.textModel.trim();
-		if (userStorage.enabled && userWebDAVStorage.enabled) {
+		if (customStorage.enabled && customWebDAVStorage.enabled) {
 			message.error("S3/R2 与 WebDAV 不能同时启用");
 			return;
 		}
-		if (token && !accountConfigRef.current.ready) {
-			message.warning("账号配置仍在加载，请稍后再保存");
+		if (backendConnected && !workspaceConfigRef.current.ready) {
+			message.warning("工作区配置仍在加载，请稍后再保存");
 			return;
 		}
         if (!canUseRemoteChannel && config.channelMode !== "local") updateConfig("channelMode", "local");
         else if (canUseRemoteChannel && !allowCustomChannel && config.channelMode !== "remote") updateConfig("channelMode", "remote");
-        if (canUseUserStorageProvider) {
-            saveUserStorageProvider(userStorage);
-            saveUserWebDAVStorageProvider(userWebDAVStorage);
+        if (canUseCustomStorageProvider) {
+            saveCustomStorageProvider(customStorage);
+            saveCustomWebDAVStorageProvider(customWebDAVStorage);
         }
         setSavingConfig(true);
 		try {
-			if (token) {
+			if (backendConnected) {
                 const configToSave = effectiveMode === "local" && config.channelMode !== "local" ? { ...config, channelMode: "local" as const } : config;
                 const workflowChannels = normalizeLocalChannels(config).filter((channel) => isWorkflowProtocol(channel.protocol));
-                let workflowData = accountConfigRef.current.workflowChannels;
+                let workflowData = workspaceConfigRef.current.workflowChannels;
                 if (config.workflowSyncTouched) {
-                    const stored = user?.id ? await listWorkflowChannels(user.id) : [];
+                    const stored = await listWorkflowChannels();
                     const activeKeys = new Set(workflowChannels.map((channel) => `${channel.protocol}:${channel.id}`));
                     workflowData = stored.filter((channel) => activeKeys.has(`${channel.protocol}:${channel.channelId}`));
                 }
-                await syncUserModelConfig(token, configToSave, workflowData);
+                await syncWorkspaceModelConfig(configToSave, workflowData);
             }
             const providers = {
-                ...(config.syncStorageConfig || remoteStorageSyncEnabled ? { s3: config.syncStorageConfig ? userStorage : { ...userStorage, enabled: false, endpoint: "", bucket: "", accessKeyId: "", secretAccessKey: "" } } : {}),
-                ...(config.syncWebDAVStorageConfig || remoteWebDAVStorageSyncEnabled ? { webdav: config.syncWebDAVStorageConfig ? userWebDAVStorage : { ...userWebDAVStorage, enabled: false, endpoint: "", username: "", password: "" } } : {}),
+                ...(config.syncStorageConfig || remoteStorageSyncEnabled ? { s3: config.syncStorageConfig ? customStorage : { ...customStorage, enabled: false, endpoint: "", bucket: "", accessKeyId: "", secretAccessKey: "" } } : {}),
+                ...(config.syncWebDAVStorageConfig || remoteWebDAVStorageSyncEnabled ? { webdav: config.syncWebDAVStorageConfig ? customWebDAVStorage : { ...customWebDAVStorage, enabled: false, endpoint: "", username: "", password: "" } } : {}),
             };
-            if (token && canUseUserStorageProvider && Object.keys(providers).length) {
-                await syncUserStorageProvider(token, providers);
+            if (backendConnected && canUseCustomStorageProvider && Object.keys(providers).length) {
+                await syncCustomStorageProvider(providers);
                 setRemoteStorageSyncEnabled(config.syncStorageConfig);
                 setRemoteWebDAVStorageSyncEnabled(config.syncWebDAVStorageConfig);
             }
             clearImageStorageCache();
             clearFileStorageCache();
             setConfigDialogOpen(false);
-            if ((config.syncStorageConfig || config.syncWebDAVStorageConfig) && !token) message.warning("请登录后再同步配置");
+            if ((config.syncStorageConfig || config.syncWebDAVStorageConfig) && !backendConnected) message.warning("请连接后端后再同步配置");
             else if (localIncomplete || modelIncomplete) message.warning("部分模型或本地渠道密钥尚未配置完整，配置已保存");
             else message.success(shouldPromptContinue ? "配置已保存，请继续刚才的请求" : "配置已保存");
             clearPromptContinue();
@@ -294,45 +292,43 @@ export function AppConfigModal() {
         const protocol = modelSelectChannel.protocol;
         setWorkflowEntries(items);
         patchLocalChannel(modelSelectChannel.id, { workflowSummaries: items.map(({ provider, kind, workflowId, title, capability, enabled }) => ({ provider, kind, workflowId, title, capability, enabled })) });
-		void saveWorkflowChannel(user?.id || "guest", protocol, modelSelectChannel.id, items).catch((error) => {
+		void saveWorkflowChannel(protocol, modelSelectChannel.id, items).catch((error) => {
 			message.error(error instanceof Error ? error.message : "保存工作流配置失败");
         });
     };
 
     const syncPersonalWorkflows = async () => {
-        if (!token || !user || !modelSelectChannel || !isWorkflowProtocol(modelSelectChannel.protocol)) {
-            throw new Error("请先登录并选择工作流渠道");
+        if (!backendConnected || !modelSelectChannel || !isWorkflowProtocol(modelSelectChannel.protocol)) {
+            throw new Error("请先连接后端服务并选择工作流渠道");
         }
-        const accountToken = token;
-        const accountId = user.id;
         const channelId = modelSelectChannel.id;
         const protocol = modelSelectChannel.protocol;
         const entries = workflowEntries;
-        if (useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) {
-            throw new Error("登录状态已变化");
+        if (!useBackendStore.getState().available) {
+            throw new Error("后端连接已变化");
 		}
 		const current = useConfigStore.getState().config;
-		if (!current.workflowSyncTouched) throw new Error("账号配置仍在加载");
-		await saveWorkflowChannel(accountId, protocol, channelId, entries);
-        if (useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) {
-            throw new Error("登录状态已变化");
+		if (!current.workflowSyncTouched) throw new Error("工作区配置仍在加载");
+		await saveWorkflowChannel(protocol, channelId, entries);
+        if (!useBackendStore.getState().available) {
+            throw new Error("后端连接已变化");
         }
         const channels = normalizeLocalChannels(current).filter((item) => isWorkflowProtocol(item.protocol));
         const keys = new Set(channels.map((item) => `${item.protocol}:${item.id}`));
         if (!keys.has(`${protocol}:${channelId}`)) throw new Error("工作流渠道已变化");
-        const saved = (await listWorkflowChannels(accountId)).filter((item) => keys.has(`${item.protocol}:${item.channelId}`));
-        if (useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) {
-            throw new Error("登录状态已变化");
+        const saved = (await listWorkflowChannels()).filter((item) => keys.has(`${item.protocol}:${item.channelId}`));
+        if (!useBackendStore.getState().available) {
+            throw new Error("后端连接已变化");
         }
-        await syncUserModelConfig(accountToken, current, saved);
-        if (useUserStore.getState().token !== accountToken || useUserStore.getState().user?.id !== accountId) {
-            throw new Error("登录状态已变化");
+        await syncWorkspaceModelConfig(current, saved);
+        if (!useBackendStore.getState().available) {
+            throw new Error("后端连接已变化");
         }
         return channelId;
     };
 
     const finishWorkflowChannel = () => {
-        if (!token || !user) {
+        if (!backendConnected) {
             closeLocalModelSelector();
             return;
         }
@@ -351,28 +347,28 @@ export function AppConfigModal() {
     };
 
 
-    const measureStorage = async (provider: UserStorageProvider) => {
-        if (!token) {
-            message.warning("请先登录后再统计容量");
+    const measureStorage = async (provider: CustomStorageProvider) => {
+        if (!backendConnected) {
+            message.warning("请先连接后端服务后再统计容量");
             return;
         }
         setMeasuringStorageType(provider.type);
         try {
-            const result = await measureUserStorageProvider(token, provider);
+            const result = await measureCustomStorageProvider(provider);
             const usageText = formatBytes(result.bytes) + " / " + formatBytes(result.limitBytes) + (result.overLimit ? "，已达到上限" : "");
             if (provider.type === "webdav") {
                 setWebDAVStorageUsageText(usageText);
                 if (result.overLimit) {
-                    const next = { ...userWebDAVStorage, enabled: false };
-                    setUserWebDAVStorage(next);
-                    saveUserWebDAVStorageProvider(next);
+                    const next = { ...customWebDAVStorage, enabled: false };
+                    setCustomWebDAVStorage(next);
+                    saveCustomWebDAVStorageProvider(next);
                 }
             } else {
                 setStorageUsageText(usageText);
                 if (result.overLimit) {
-                    const next = { ...userStorage, enabled: false };
-                    setUserStorage(next);
-                    saveUserStorageProvider(next);
+                    const next = { ...customStorage, enabled: false };
+                    setCustomStorage(next);
+                    saveCustomStorageProvider(next);
                 }
             }
             message.success("容量统计完成");
@@ -388,7 +384,7 @@ export function AppConfigModal() {
             <Modal
             title={
                 <div>
-                    <div className="text-lg font-semibold">配置与用户偏好</div>
+                    <div className="text-lg font-semibold">配置与偏好</div>
                     <div className="mt-1 text-xs font-normal text-stone-500">模型、渠道和画布默认行为</div>
                 </div>
             }
@@ -476,7 +472,7 @@ export function AppConfigModal() {
                     ) : (
                         <div className="mb-5 rounded-lg border border-stone-200 p-3 text-sm text-stone-500 dark:border-stone-800">
                             <div className="font-medium text-stone-900 dark:text-stone-100">云端渠道</div>
-                            <div className="mt-1">由系统后台渠道转发请求，当前可用 {modelChannel?.availableModels.length || 0} 个模型。</div>
+                            <div className="mt-1">由系统渠道转发请求，当前可用 {modelChannel?.availableModels.length || 0} 个模型。</div>
                         </div>
                     )}
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -543,7 +539,7 @@ export function AppConfigModal() {
                         <FeatureSwitch title="返回 Base64 图片数据" description="开启后 Image API 请求会追加 response_format: b64_json。" checked={Boolean(config.responseFormatB64Json)} onChange={(checked) => updateConfig("responseFormatB64Json", checked ? "1" : "")} />
                         <FeatureSwitch title="Codex CLI 兼容模式" description="开启后减少不兼容参数，并追加防提示词改写前缀。" checked={Boolean(config.codexCli)} onChange={(checked) => updateConfig("codexCli", checked ? "1" : "")} />
                     </div>
-                    {canUseUserStorageProvider ? (
+                    {canUseCustomStorageProvider ? (
                         <>
                             <section className="mb-5 mt-4 rounded-xl border border-stone-200 bg-stone-50/70 p-3 dark:border-stone-800 dark:bg-stone-900/50">
                                 <div className="flex items-center justify-between gap-3">
@@ -555,24 +551,24 @@ export function AppConfigModal() {
                                         </div>
                                     </div>
                                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                        <Button size="small" loading={measuringStorageType === "s3"} onClick={() => void measureStorage(userStorage)}>
+                                        <Button size="small" loading={measuringStorageType === "s3"} onClick={() => void measureStorage(customStorage)}>
                                             统计容量
                                         </Button>
                                         <span className="text-xs text-stone-500">自动同步</span>
                                         <Switch size="small" checked={config.syncStorageConfig} onChange={(checked) => updateConfig("syncStorageConfig", checked)} />
-                                        <Switch checked={userStorage.enabled} disabled={userWebDAVStorage.enabled} onChange={(enabled) => setUserStorage((value) => ({ ...value, enabled }))} />
+                                        <Switch checked={customStorage.enabled} disabled={customWebDAVStorage.enabled} onChange={(enabled) => setCustomStorage((value) => ({ ...value, enabled }))} />
                                     </div>
                                 </div>
-                                {userStorage.enabled ? (
+                                {customStorage.enabled ? (
                                     <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                        <Input value={userStorage.name} placeholder="配置名称" onChange={(event) => setUserStorage((value) => ({ ...value, name: event.target.value }))} />
-                                        <Input value={userStorage.endpoint} placeholder="Endpoint，例如 https://<account>.r2.cloudflarestorage.com" onChange={(event) => setUserStorage((value) => ({ ...value, endpoint: event.target.value }))} />
-                                        <Input value={userStorage.region} placeholder="Region，R2 通常为 auto" onChange={(event) => setUserStorage((value) => ({ ...value, region: event.target.value }))} />
-                                        <Input value={userStorage.bucket} placeholder="Bucket 名称" onChange={(event) => setUserStorage((value) => ({ ...value, bucket: event.target.value }))} />
-                                        <Input value={userStorage.accessKeyId} placeholder="Access Key ID" onChange={(event) => setUserStorage((value) => ({ ...value, accessKeyId: event.target.value }))} />
-                                        <Input.Password value={userStorage.secretAccessKey} placeholder="Secret Access Key" onChange={(event) => setUserStorage((value) => ({ ...value, secretAccessKey: event.target.value }))} />
-                                        <Input value={userStorage.publicBaseUrl} placeholder="公开访问地址，例如 https://pub-xxx.r2.dev" onChange={(event) => setUserStorage((value) => ({ ...value, publicBaseUrl: event.target.value }))} />
-                                        <Input value={userStorage.pathPrefix} placeholder="保存路径前缀，例如 images" onChange={(event) => setUserStorage((value) => ({ ...value, pathPrefix: event.target.value }))} />
+                                        <Input value={customStorage.name} placeholder="配置名称" onChange={(event) => setCustomStorage((value) => ({ ...value, name: event.target.value }))} />
+                                        <Input value={customStorage.endpoint} placeholder="Endpoint，例如 https://<account>.r2.cloudflarestorage.com" onChange={(event) => setCustomStorage((value) => ({ ...value, endpoint: event.target.value }))} />
+                                        <Input value={customStorage.region} placeholder="Region，R2 通常为 auto" onChange={(event) => setCustomStorage((value) => ({ ...value, region: event.target.value }))} />
+                                        <Input value={customStorage.bucket} placeholder="Bucket 名称" onChange={(event) => setCustomStorage((value) => ({ ...value, bucket: event.target.value }))} />
+                                        <Input value={customStorage.accessKeyId} placeholder="Access Key ID" onChange={(event) => setCustomStorage((value) => ({ ...value, accessKeyId: event.target.value }))} />
+                                        <Input.Password value={customStorage.secretAccessKey} placeholder="Secret Access Key" onChange={(event) => setCustomStorage((value) => ({ ...value, secretAccessKey: event.target.value }))} />
+                                        <Input value={customStorage.publicBaseUrl} placeholder="公开访问地址，例如 https://pub-xxx.r2.dev" onChange={(event) => setCustomStorage((value) => ({ ...value, publicBaseUrl: event.target.value }))} />
+                                        <Input value={customStorage.pathPrefix} placeholder="保存路径前缀，例如 images" onChange={(event) => setCustomStorage((value) => ({ ...value, pathPrefix: event.target.value }))} />
                                     </div>
                                 ) : null}
                             </section>
@@ -586,21 +582,21 @@ export function AppConfigModal() {
                                         </div>
                                     </div>
                                     <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-                                        <Button size="small" loading={measuringStorageType === "webdav"} onClick={() => void measureStorage(userWebDAVStorage)}>
+                                        <Button size="small" loading={measuringStorageType === "webdav"} onClick={() => void measureStorage(customWebDAVStorage)}>
                                             统计容量
                                         </Button>
                                         <span className="text-xs text-stone-500">自动同步</span>
                                         <Switch size="small" checked={config.syncWebDAVStorageConfig} onChange={(checked) => updateConfig("syncWebDAVStorageConfig", checked)} />
-                                        <Switch checked={userWebDAVStorage.enabled} disabled={userStorage.enabled} onChange={(enabled) => setUserWebDAVStorage((value) => ({ ...value, enabled }))} />
+                                        <Switch checked={customWebDAVStorage.enabled} disabled={customStorage.enabled} onChange={(enabled) => setCustomWebDAVStorage((value) => ({ ...value, enabled }))} />
                                     </div>
                                 </div>
-                                {userWebDAVStorage.enabled ? (
+                                {customWebDAVStorage.enabled ? (
                                     <div className="mt-3 grid gap-3 md:grid-cols-2">
-                                        <Input value={userWebDAVStorage.name} placeholder="配置名称" onChange={(event) => setUserWebDAVStorage((value) => ({ ...value, name: event.target.value }))} />
-                                        <Input value={userWebDAVStorage.endpoint} placeholder="WebDAV 地址" onChange={(event) => setUserWebDAVStorage((value) => ({ ...value, endpoint: event.target.value }))} />
-                                        <Input value={userWebDAVStorage.pathPrefix} placeholder="远程目录" onChange={(event) => setUserWebDAVStorage((value) => ({ ...value, pathPrefix: event.target.value }))} />
-                                        <Input value={userWebDAVStorage.username} placeholder="用户名" onChange={(event) => setUserWebDAVStorage((value) => ({ ...value, username: event.target.value }))} />
-                                        <Input.Password value={userWebDAVStorage.password} placeholder="密码 / 应用密码" onChange={(event) => setUserWebDAVStorage((value) => ({ ...value, password: event.target.value }))} />
+                                        <Input value={customWebDAVStorage.name} placeholder="配置名称" onChange={(event) => setCustomWebDAVStorage((value) => ({ ...value, name: event.target.value }))} />
+                                        <Input value={customWebDAVStorage.endpoint} placeholder="WebDAV 地址" onChange={(event) => setCustomWebDAVStorage((value) => ({ ...value, endpoint: event.target.value }))} />
+                                        <Input value={customWebDAVStorage.pathPrefix} placeholder="远程目录" onChange={(event) => setCustomWebDAVStorage((value) => ({ ...value, pathPrefix: event.target.value }))} />
+                                        <Input value={customWebDAVStorage.username} placeholder="用户名" onChange={(event) => setCustomWebDAVStorage((value) => ({ ...value, username: event.target.value }))} />
+                                        <Input.Password value={customWebDAVStorage.password} placeholder="密码 / 应用密码" onChange={(event) => setCustomWebDAVStorage((value) => ({ ...value, password: event.target.value }))} />
                                     </div>
                                 ) : null}
                             </section>
@@ -621,7 +617,7 @@ export function AppConfigModal() {
             </Modal>
             {modelSelectChannel && isWorkflowProtocol(modelSelectChannel.protocol) ? (
                 <Modal title={`${modelSelectChannel.name || "工作流渠道"} · ${modelSelectChannel.protocol === "runninghub" ? "RunningHub" : "ComfyUI"} 工作流`} open width="75vw" centered onCancel={finishWorkflowChannel} footer={<Button type="primary" onClick={finishWorkflowChannel}>完成</Button>} styles={{ body: { maxHeight: "76vh", overflowY: "auto" } }}>
-                    <WorkflowChannelPane key={`${user?.id || "guest"}:${modelSelectChannel.protocol}:${modelSelectChannel.id}`} channel={modelSelectChannel as WorkflowChannelSettings} workflows={workflowEntries} token={token || ""} onChannelChange={(patch) => patchLocalChannel(modelSelectChannel.id, patch)} onBridgeDeleted={(bridgeId) => {
+                    <WorkflowChannelPane key={`${"default"}:${modelSelectChannel.protocol}:${modelSelectChannel.id}`} channel={modelSelectChannel as WorkflowChannelSettings} workflows={workflowEntries}  onChannelChange={(patch) => patchLocalChannel(modelSelectChannel.id, patch)} onBridgeDeleted={(bridgeId) => {
                         const current = useConfigStore.getState().config;
                         updateLocalChannels(normalizeLocalChannels(current).map((channel) => channel.protocol === "comfyui" && channel.bridgeId === bridgeId ? { ...channel, bridgeId: "" } : channel));
                     }} onWorkflowsChange={changePersonalWorkflows} onBeforeTest={syncPersonalWorkflows} />
