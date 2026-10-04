@@ -27,7 +27,7 @@ function syncVersion() {
     writeFileSync(cargo, readFileSync(cargo, "utf8").replace(/^version = ".*"$/m, `version = "${version}"`));
     const lock = join(tauri, "Cargo.lock");
     const lockfile = readFileSync(lock, "utf8");
-    const packageVersion = /(\[\[package\]\]\r?\nname = "mohua-canvas"\r?\nversion = ")[^"]+("/;
+    const packageVersion = /(\[\[package\]\]\r?\nname = "mohua-canvas"\r?\nversion = ")[^"]+/;
     if (!packageVersion.test(lockfile)) throw new Error("Cargo.lock 缺少 mohua-canvas package 版本");
     writeFileSync(lock, lockfile.replace(packageVersion, `$1${version}$2`));
 }
