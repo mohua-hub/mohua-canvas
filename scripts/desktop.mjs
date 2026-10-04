@@ -29,7 +29,7 @@ function syncVersion() {
     const lockfile = readFileSync(lock, "utf8");
     const packageVersion = /(\[\[package\]\]\r?\nname = "mohua-canvas"\r?\nversion = ")[^"]+/;
     if (!packageVersion.test(lockfile)) throw new Error("Cargo.lock 缺少 mohua-canvas package 版本");
-    writeFileSync(lock, lockfile.replace(packageVersion, `$1${version}$2`));
+    writeFileSync(lock, lockfile.replace(packageVersion, (_match, prefix) => `${prefix}${version}`));
 }
 
 function prepareRuntime() {
