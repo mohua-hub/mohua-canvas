@@ -62,20 +62,6 @@ func AdminAICallLogs(w http.ResponseWriter, r *http.Request) {
 	OK(w, list)
 }
 
-// ClientAICallLog 接收前端本地直连渠道的 AI 调用日志上报。
-func ClientAICallLog(w http.ResponseWriter, r *http.Request) {
-	workspaceID := service.WorkspaceID
-	var request service.AICallLogInput
-	_ = json.NewDecoder(r.Body).Decode(&request)
-	if !service.LocalDirectAILogEnabled() {
-		OK(w, true)
-		return
-	}
-	request.WorkspaceID = workspaceID
-	service.SaveAICallLog(request)
-	OK(w, true)
-}
-
 func AdminDeleteAICallLogs(w http.ResponseWriter, r *http.Request) {
 	days := 7
 	if v := r.URL.Query().Get("olderThanDays"); v != "" {

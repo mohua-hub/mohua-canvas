@@ -432,15 +432,16 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                 textApiMode: "chat",
                 autoGenerateMedia: false,
                 imageQuality: effectiveConfig.quality,
+                imageResolution: effectiveConfig.imageResolution,
                 imageSize: effectiveConfig.size,
                 videoQuality: effectiveConfig.vquality,
                 videoSize: effectiveConfig.videoSize,
             };
         },
-        [agentConfig, effectiveConfig.quality, effectiveConfig.size, effectiveConfig.videoSize, effectiveConfig.vquality],
+        [agentConfig, effectiveConfig.quality, effectiveConfig.imageResolution, effectiveConfig.size, effectiveConfig.videoSize, effectiveConfig.vquality],
     );
     const agentEffectiveConfig = useMemo(
-        () => ({ ...effectiveConfig, quality: resolvedAgentConfig.imageQuality, size: resolvedAgentConfig.imageSize, vquality: resolvedAgentConfig.videoQuality, videoSize: resolvedAgentConfig.videoSize, count: "1", canvasImageCount: "1" }),
+        () => ({ ...effectiveConfig, quality: resolvedAgentConfig.imageQuality, imageResolution: resolvedAgentConfig.imageResolution || effectiveConfig.imageResolution, size: resolvedAgentConfig.imageSize, vquality: resolvedAgentConfig.videoQuality, videoSize: resolvedAgentConfig.videoSize, count: "1", canvasImageCount: "1" }),
         [effectiveConfig, resolvedAgentConfig],
     );
 
@@ -2509,7 +2510,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
         async (node: CanvasNodeData, payload: CanvasImageMaskEditPayload) => {
             if (!node.metadata?.content) return;
             const baseGenerationConfig = buildGenerationConfig(effectiveConfig, node, "image");
-            const generationConfig = { ...baseGenerationConfig, model: payload.model || baseGenerationConfig.model, activeChannelId: payload.channelId || baseGenerationConfig.imageChannelId || baseGenerationConfig.activeChannelId, imageChannelId: payload.channelId || baseGenerationConfig.imageChannelId, count: "1", size: node.metadata?.size || "auto" };
+            const generationConfig = { ...baseGenerationConfig, model: payload.model || baseGenerationConfig.model, activeChannelId: payload.channelId || baseGenerationConfig.imageChannelId || baseGenerationConfig.activeChannelId, imageChannelId: payload.channelId || baseGenerationConfig.imageChannelId, count: "1", imageResolution: node.metadata?.imageResolution || baseGenerationConfig.imageResolution, size: node.metadata?.size || "auto" };
             if (!isAiConfigReady(generationConfig, generationConfig.model)) {
                 openConfigDialog(true);
                 return;
@@ -3480,6 +3481,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                             audio: agentEffectiveConfig.audioModel,
                         },
                         imageQuality: agentEffectiveConfig.quality,
+                        imageResolution: agentEffectiveConfig.imageResolution,
                         imageSize: agentEffectiveConfig.size,
                         videoQuality: agentEffectiveConfig.vquality,
                         videoSize: agentEffectiveConfig.videoSize,
@@ -3704,6 +3706,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     };
                     if (mode === "image") {
                         metadata.quality = generationConfig.quality;
+                        metadata.imageResolution = generationConfig.imageResolution;
                         metadata.count = typeof args.count === "number" ? Math.max(1, Math.floor(args.count)) : 1;
                     }
                     if (mode === "video") {
@@ -3900,7 +3903,7 @@ function InfiniteCanvasPage({ projectId }: { projectId: string }) {
                     ? await workflowImageTask(await submitCanvasWorkflowTask(retryWorkflowRef, generationConfig, "image", requestPrompt, useReferenceImages ? retryImages : [], [], [], retryTargetId, projectId, retryImageTaskId))
                     : await createCanvasImageTask({ ...generationConfig, quality: isPanorama && generationConfig.quality === "auto" ? "medium" : generationConfig.quality }, requestPrompt, useReferenceImages ? retryImages : [], { nodeId: node.id, sourceId: projectId, clientTaskId: retryImageTaskId });
                 const generationMetadata = savedImageMetadata?.generationType
-                    ? { generationType: savedImageMetadata.generationType, model: generationConfig.model, channelId: generationConfig.imageChannelId || generationConfig.activeChannelId, size: generationConfig.size, quality: generationConfig.quality, count: savedImageMetadata.count || 1, references: savedImageMetadata.references }
+                    ? { generationType: savedImageMetadata.generationType, model: generationConfig.model, channelId: generationConfig.imageChannelId || generationConfig.activeChannelId, size: generationConfig.size, quality: generationConfig.quality, imageResolution: generationConfig.imageResolution, count: savedImageMetadata.count || 1, references: savedImageMetadata.references }
                     : buildImageGenerationMetadata(useReferenceImages ? "edit" : "generation", generationConfig, 1, retryImages);
                 setNodes((prev) => {
                     const next = prev.map((item) =>
@@ -5142,6 +5145,7 @@ function buildImageGenerationMetadata(type: CanvasImageGenerationType, config: A
         channelId: config.imageChannelId || config.activeChannelId,
         size: config.size,
         quality: config.quality,
+        imageResolution: config.imageResolution,
         count,
         references: references.map(referenceUrl).filter((url): url is string => Boolean(url)),
     };
@@ -5741,6 +5745,7 @@ function buildGenerationConfig(config: AiConfig, node: CanvasNodeData | undefine
         textChannelId,
         audioChannelId,
         quality: node?.metadata?.quality || config.quality || defaultConfig.quality,
+        imageResolution: node?.metadata?.imageResolution || config.imageResolution || defaultConfig.imageResolution,
         size: isPanoramaNodeType(node?.type) ? PANORAMA_IMAGE_SIZE : node?.metadata?.size || (mode === "video" ? config.videoSize || defaultConfig.videoSize : config.size || defaultConfig.size),
         videoSeconds: node?.metadata?.seconds || config.videoSeconds || defaultConfig.videoSeconds,
         vquality: node?.metadata?.vquality || config.vquality || defaultConfig.vquality,
@@ -5811,6 +5816,7 @@ async function submitCanvasWorkflowTask(ref: WorkflowRef, config: AiConfig, mode
         referenceAudios,
         size: config.size,
         quality: config.quality,
+        imageResolution: config.imageResolution,
         count: mode === "image" ? 1 : undefined,
         videoSeconds: config.videoSeconds,
         videoQuality: config.vquality,

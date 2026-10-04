@@ -1,7 +1,6 @@
 package service
 
 import (
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -26,11 +25,7 @@ func resolveWorkflowForWorkspace(workspaceID string, ref WorkflowRef, requireEnt
 		return ResolvedWorkflow{}, errors.New("请选择有效工作流")
 	}
 	var channels []model.ModelChannel
-	var personalWorkflows []struct {
-		ChannelID string                `json:"channelId"`
-		Protocol  string                `json:"protocol"`
-		Workflows []model.WorkflowEntry `json:"workflows"`
-	}
+	var personalWorkflows []workspaceWorkflowChannel
 	ownerScope, ownerID := ref.Scope, workspaceID
 	switch ref.Scope {
 	case "system":
@@ -44,25 +39,23 @@ func resolveWorkflowForWorkspace(workspaceID string, ref WorkflowRef, requireEnt
 		channels = settings.Private.Channels
 		ownerID = "system"
 	case "personal":
-		stored, exists, err := repository.GetWorkspaceConfig(workspaceID)
+		_, exists, err := repository.GetWorkspaceConfig(workspaceID)
 		if err != nil {
 			return ResolvedWorkflow{}, err
 		}
 		if !exists {
 			return ResolvedWorkflow{}, errors.New("本地工作流配置未同步到后端")
 		}
-		var config struct {
-			LocalChannels    []model.ModelChannel `json:"localChannels"`
-			WorkflowChannels []struct {
-				ChannelID string                `json:"channelId"`
-				Protocol  string                `json:"protocol"`
-				Workflows []model.WorkflowEntry `json:"workflows"`
-			} `json:"workflowChannels"`
+		settings, err := repository.GetSettings()
+		if err != nil {
+			return ResolvedWorkflow{}, err
 		}
-		if err := json.Unmarshal([]byte(stored.ModelConfig), &config); err != nil {
-			return ResolvedWorkflow{}, errors.New("本地工作流配置格式无效")
+		channels = settings.Private.Channels
+		ownerScope, ownerID = "system", "system"
+		personalWorkflows, err = personalWorkflowChannels(workspaceID)
+		if err != nil {
+			return ResolvedWorkflow{}, err
 		}
-		channels, personalWorkflows = config.LocalChannels, config.WorkflowChannels
 	default:
 		return ResolvedWorkflow{}, errors.New("工作流归属类型无效")
 	}
@@ -74,6 +67,7 @@ func resolveWorkflowForWorkspace(workspaceID string, ref WorkflowRef, requireEnt
 			return ResolvedWorkflow{}, errors.New("目标渠道不是工作流渠道")
 		}
 		if ref.Scope == "personal" {
+			channel.Workflows = nil
 			for _, saved := range personalWorkflows {
 				if saved.ChannelID == channel.ID && saved.Protocol == channel.Protocol {
 					channel.Workflows = saved.Workflows

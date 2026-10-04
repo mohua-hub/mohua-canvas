@@ -136,25 +136,6 @@ export const useAssetStore = create<AssetStore>()(
                                 console.error("Error iterating image_generation_logs", e);
                             }
 
-                            try {
-                                const localforage = (await import("localforage")).default;
-                                const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
-                                await videoLogStore.iterate((log: any) => {
-                                    if (log) {
-                                        if (log.video && log.video.storageKey) {
-                                            usedKeys.add(log.video.storageKey);
-                                        }
-                                        if (Array.isArray(log.references)) {
-                                            log.references.forEach((ref: any) => {
-                                                if (ref && ref.storageKey) usedKeys.add(ref.storageKey);
-                                            });
-                                        }
-                                    }
-                                });
-                            } catch (e) {
-                                console.error("Error iterating video_generation_logs", e);
-                            }
-
                             // 若全站没有其他地方再引用此 storageKey，则执行真正的物理删除
                             if (!usedKeys.has(key)) {
                                 if (key.startsWith("image:") || key.startsWith("server:")) {
@@ -227,19 +208,6 @@ export const useAssetStore = create<AssetStore>()(
                                     log.images.forEach((img: any) => {
                                         if (img && img.storageKey) logKeys.push(img.storageKey);
                                     });
-                                }
-                                if (Array.isArray(log.references)) {
-                                    log.references.forEach((ref: any) => {
-                                        if (ref && ref.storageKey) logKeys.push(ref.storageKey);
-                                    });
-                                }
-                            }
-                        });
-                        const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
-                        await videoLogStore.iterate((log: any) => {
-                            if (log) {
-                                if (log.video && log.video.storageKey) {
-                                    logKeys.push(log.video.storageKey);
                                 }
                                 if (Array.isArray(log.references)) {
                                     log.references.forEach((ref: any) => {

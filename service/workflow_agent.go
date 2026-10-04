@@ -62,8 +62,7 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	response, err := client.Do(httpRequest)
 	if err != nil {
 		SaveAICallLog(AICallLogInput{
-			WorkspaceID:          workspaceID,
-			
+			WorkspaceID:     workspaceID,
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -81,8 +80,7 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	responseBody, _ := io.ReadAll(response.Body)
 	if response.StatusCode >= http.StatusBadRequest {
 		SaveAICallLog(AICallLogInput{
-			WorkspaceID:          workspaceID,
-			
+			WorkspaceID:     workspaceID,
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -104,8 +102,7 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	draft, warnings, err := normalizeWorkflowDraft(content, request.Scope)
 	if err != nil {
 		SaveAICallLog(AICallLogInput{
-			WorkspaceID:          workspaceID,
-			
+			WorkspaceID:     workspaceID,
 			Endpoint:        "/workflows/agent-draft",
 			Method:          http.MethodPost,
 			Model:           modelName,
@@ -121,8 +118,7 @@ func DraftCreativeWorkflow(ctx context.Context, request WorkflowAgentDraftReques
 	}
 
 	SaveAICallLog(AICallLogInput{
-		WorkspaceID:          workspaceID,
-		
+		WorkspaceID:     workspaceID,
 		Endpoint:        "/workflows/agent-draft",
 		Method:          http.MethodPost,
 		Model:           modelName,
@@ -163,23 +159,7 @@ func workflowDraftModel(modelName string) (string, error) {
 }
 
 func workflowDraftChannel(request WorkflowAgentDraftRequest, modelName string) (model.ModelChannel, error) {
-	if request.ChannelMode == "local" {
-		channel := model.ModelChannel{
-			ID:       strings.TrimSpace(request.ChannelID),
-			Name:     "用户本地直连",
-			BaseURL:  strings.TrimSpace(request.BaseURL),
-			APIKey:   strings.TrimSpace(request.APIKey),
-			Models:   []string{modelName},
-			Weight:   1,
-			Timeout:  600,
-			Protocol: strings.TrimSpace(request.Protocol),
-		}
-		if channel.BaseURL == "" || channel.APIKey == "" {
-			return model.ModelChannel{}, safeMessageError{message: "文本模型本地直连渠道配置不完整"}
-		}
-		return channel, nil
-	}
-	return SelectModelChannel(modelName)
+	return SelectModelChannelForModel(modelName, request.ChannelID, true)
 }
 
 func workflowAgentMessages(prompt string, references []string) []map[string]any {

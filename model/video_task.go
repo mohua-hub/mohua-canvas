@@ -5,7 +5,6 @@ type VideoTask struct {
 	WorkspaceID          string  `json:"workspaceId" gorm:"index"`
 	Model           string  `json:"model" gorm:"index"`
 	ChannelID       string  `json:"channelId" gorm:"index"`
-	LocalChannelID   string  `json:"localChannelId" gorm:"index"`
 	ChannelName     string  `json:"channelName"`
 	WorkflowRef     string  `json:"workflowRef,omitempty" gorm:"type:text"`
 	Source          string  `json:"source" gorm:"index"`

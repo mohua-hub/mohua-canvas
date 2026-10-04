@@ -32,6 +32,7 @@ type WorkflowRunInput struct {
 	Mask                  string         `json:"mask"`
 	Size                  string         `json:"size"`
 	Quality               string         `json:"quality"`
+	ImageResolution       string         `json:"imageResolution"`
 	TransparentBackground bool           `json:"transparentBackground"`
 	Count                 int            `json:"count"`
 	VideoSeconds          string         `json:"videoSeconds"`
@@ -230,12 +231,16 @@ func workflowFieldValue(field model.WorkflowFieldMapping, input WorkflowRunInput
 			}
 		}
 	case "size":
-		value = input.Size
+		if capability == "video" {
+			value = workflowVideoSize(input.Size, input.VideoQuality)
+		} else {
+			value = workflowImageSize(input.Size, input.ImageResolution)
+		}
 	case "resolution":
 		if capability == "video" {
 			value = workflowVideoFieldValue(field, input.VideoQuality, normalizeWorkflowResolutionToken)
 		} else {
-			value = input.Size
+			value = input.ImageResolution
 		}
 	case "aspectRatio":
 		value = workflowAspectRatioValue(field, input.Size)
@@ -244,7 +249,7 @@ func workflowFieldValue(field model.WorkflowFieldMapping, input WorkflowRunInput
 		if source == "height" {
 			index = 1
 		}
-		value = workflowDimensionPart(capability, input.Size, input.VideoQuality, index)
+		value = workflowDimensionPart(capability, workflowImageSize(input.Size, input.ImageResolution), input.VideoQuality, index)
 	case "count":
 		value = input.Count
 	case "quality":
@@ -271,6 +276,25 @@ func workflowFieldValue(field model.WorkflowFieldMapping, input WorkflowRunInput
 		return nil, false, fmt.Errorf("不支持的来源 %q", source)
 	}
 	return value, !workflowValueEmpty(value), nil
+}
+
+func workflowImageSize(size string, resolution string) string {
+	size = strings.TrimSpace(size)
+	resolution = strings.ToLower(strings.TrimSpace(resolution))
+	if size == "" || size == "auto" || resolution == "" || strings.Contains(size, "-") {
+		return size
+	}
+	if resolution != "1k" && resolution != "2k" && resolution != "4k" {
+		return size
+	}
+	if strings.Contains(size, "x") {
+		ratio := workflowAspectRatio(size)
+		if ratio == "" {
+			return size
+		}
+		size = ratio
+	}
+	return size + "-" + resolution
 }
 
 func workflowValueEmpty(value any) bool {
@@ -336,14 +360,14 @@ func workflowDimensionPart(mode string, size string, videoQuality string, index 
 	if index < 0 || index > 1 {
 		return ""
 	}
-	if dimensions, ok := workflowPixelDimensions(size); ok {
-		return strconv.Itoa(dimensions[index])
-	}
 	if strings.EqualFold(strings.TrimSpace(mode), "video") {
 		dimensions, ok := workflowVideoDimensions(size, videoQuality)
 		if !ok {
 			return ""
 		}
+		return strconv.Itoa(dimensions[index])
+	}
+	if dimensions, ok := workflowPixelDimensions(size); ok {
 		return strconv.Itoa(dimensions[index])
 	}
 	dimensions, ok := workflowImageDimensions(size)
@@ -526,6 +550,14 @@ func workflowVideoDimensions(size string, quality string) ([2]int, bool) {
 		return [2]int{workflowRoundToStep(float64(shortEdge)*float64(widthRatio)/float64(heightRatio), 2), shortEdge}, true
 	}
 	return [2]int{shortEdge, workflowRoundToStep(float64(shortEdge)*float64(heightRatio)/float64(widthRatio), 2)}, true
+}
+
+func workflowVideoSize(size string, quality string) string {
+	dimensions, ok := workflowVideoDimensions(size, quality)
+	if !ok {
+		return size
+	}
+	return strconv.Itoa(dimensions[0]) + "x" + strconv.Itoa(dimensions[1])
 }
 
 func workflowRoundToStep(value float64, step int) int {

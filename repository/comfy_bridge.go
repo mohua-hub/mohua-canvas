@@ -139,23 +139,7 @@ func DeleteComfyBridge(id, scope, ownerID string) ([]string, error) {
 				}
 			}
 		case "personal":
-			var config model.WorkspaceConfig
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&config, "workspace_id = ?", ownerID).Error
-			if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-				return err
-			}
-			if err == nil {
-				value, changed, err := clearComfyBridgeReference([]byte(config.ModelConfig), "localChannels", id)
-				if err != nil {
-					return err
-				}
-				if changed {
-					config.ModelConfig, config.UpdatedAt = string(value), workspaceConfigTimestamp()
-					if err := tx.Select("ModelConfig", "UpdatedAt").Save(&config).Error; err != nil {
-						return err
-					}
-				}
-			}
+			// Workspace settings no longer own ComfyUI channels or credentials.
 		default:
 			return errors.New("Bridge 归属类型无效")
 		}

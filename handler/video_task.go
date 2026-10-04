@@ -19,32 +19,6 @@ func StartVideoTaskPoller() {
 	service.StartVideoTaskPoller(pollVideoTaskFromUpstream)
 }
 
-func WorkspaceVideoTasks(w http.ResponseWriter, r *http.Request) {
-	workspaceID := service.WorkspaceID
-	tasks, err := service.ListWorkspaceVideoTasks(workspaceID, "video-workbench", 100)
-	if err != nil {
-		log.Printf("list video tasks failed: workspace=%s err=%v", workspaceID, err)
-		Fail(w, "AI 接口请求失败")
-		return
-	}
-	OK(w, tasks)
-}
-
-func DeleteWorkspaceVideoTask(w http.ResponseWriter, r *http.Request, id string) {
-	workspaceID := service.WorkspaceID
-	id = strings.TrimSpace(id)
-	if id == "" {
-		Fail(w, "视频任务不存在")
-		return
-	}
-	if err := service.DeleteWorkspaceVideoTask(workspaceID, id); err != nil {
-		log.Printf("delete video task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
-		Fail(w, "AI 接口请求失败")
-		return
-	}
-	OK(w, map[string]any{"deleted": true})
-}
-
 func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 	startedAt := time.Now()
 	body, contentType, modelName, err := readAIRequest(r)
@@ -54,7 +28,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	workspaceID := service.WorkspaceID
-	channel, localChannelID, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), true)
+	channel, err := selectAIRequestChannel(modelName, r.Header.Get("X-Model-Channel-ID"), true)
 	if err != nil {
 		log.Printf("AI video select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
@@ -87,8 +61,7 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		Method:          http.MethodPost,
 		Model:           modelName,
 		Channel:         channel,
-		WorkspaceID:          workspaceID,
-		
+		WorkspaceID:     workspaceID,
 		RequestBody:     summarizeAIRequest(body, contentType),
 	}
 	payload, status, err := doAIRequest(request, channel)
@@ -116,11 +89,9 @@ func proxyAIVideoTaskRequest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	task, err := service.CreateVideoTask(service.VideoTaskCreateInput{
-		WorkspaceID:          workspaceID,
-		
-		Model:           modelName,
+		WorkspaceID:     workspaceID,
+		Model:            modelName,
 		ChannelID:       channel.ID,
-		LocalChannelID:   localChannelID,
 		ChannelName:     channel.Name,
 		Source:          readVideoTaskSource(r),
 		SourceID:        readVideoTaskSourceID(r),
@@ -188,11 +159,7 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 		return false
 	}
 	var channel model.ModelChannel
-	if strings.TrimSpace(task.LocalChannelID) != "" {
-		channel, err = service.SelectLocalModelChannelForModel(task.WorkspaceID, task.Model, task.LocalChannelID)
-	} else {
-		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
-	}
+	channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	if err != nil || !service.IsGeminiChannel(channel) {
 		return false
 	}
@@ -227,11 +194,7 @@ func serveGeminiVideoTaskContent(w http.ResponseWriter, r *http.Request, id stri
 func pollVideoTaskFromUpstream(task model.VideoTask) (service.VideoTaskPollUpdate, error) {
 	var channel model.ModelChannel
 	var err error
-	if strings.TrimSpace(task.LocalChannelID) != "" {
-		channel, err = service.SelectLocalModelChannelForModel(task.WorkspaceID, task.Model, task.LocalChannelID)
-	} else {
-		channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
-	}
+	channel, err = service.SelectModelChannelForModel(task.Model, task.ChannelID, false)
 	if err != nil {
 		return service.VideoTaskPollUpdate{}, err
 	}
@@ -259,8 +222,7 @@ func pollVideoTaskFromUpstream(task model.VideoTask) (service.VideoTaskPollUpdat
 		Method:          http.MethodGet,
 		Model:           task.Model,
 		Channel:         channel,
-		WorkspaceID:          task.WorkspaceID,
-		
+		WorkspaceID:     task.WorkspaceID,
 		RequestBody:     fmt.Sprintf(`{"taskId":%q}`, pollID),
 	}
 	payload, status, err := doAIRequest(request, channel)

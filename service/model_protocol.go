@@ -61,7 +61,7 @@ func init() {
 	}
 	minimax.models = func(model.ModelChannel) ([]string, error) { return MiniMaxModels(), nil }
 	minimax.testModel = func(model.ModelChannel, string) (string, error) {
-		return "MiniMax-H3 是异步视频模型，请在视频创作台测试生成。", nil
+		return "MiniMax-H3 是异步视频模型，请在画布中创建视频节点测试生成。", nil
 	}
 	modelProtocolRegistry[ModelChannelProtocolMiniMax] = minimax
 
@@ -100,13 +100,13 @@ func init() {
 		if _, err := AutoDLWorkflowDetail(channel.BaseURL, modelName); err != nil {
 			return "", err
 		}
-		return "AutoDL 工作流目录可读取；Token 和真实生成请在对应创作入口测试。", nil
+		return "AutoDL 工作流目录可读取；Token 和真实生成请在画布中使用对应节点测试。", nil
 	}
 	modelProtocolRegistry[ModelChannelProtocolAutoDL] = autodl
 
 	api88 := compatible
 	api88.testModel = func(model.ModelChannel, string) (string, error) {
-		return "88API 渠道不会调用聊天接口测试，请在对应创作台验证模型。", nil
+		return "88API 渠道不会调用聊天接口测试，请在画布中验证模型。", nil
 	}
 	modelProtocolRegistry[ModelChannelProtocol88API] = api88
 	ark := compatible

@@ -1,8 +1,8 @@
 import { mimoTextModels } from "@/lib/mimo-tts";
-import { dataUrlToGeminiInlineData, geminiActionUrl, geminiDirectHeaders, geminiErrorMessage, isGeminiConfig } from "@/lib/gemini";
+import { dataUrlToGeminiInlineData, geminiErrorMessage, isGeminiConfig } from "@/lib/gemini";
 import { aiApiUrl, aiHeaders, ImageRequestError, isEventStreamResponse, readJsonServerSentEvents } from "@/services/api/image";
 import { imageToDataUrl } from "@/services/image-storage";
-import { channelProtocolForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
+import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
 import type { CanvasAgentProtocolMessage, CanvasAgentToolCall, CanvasAgentToolMode } from "@/app/(user)/canvas/types";
 import type { CanvasAgentToolDefinition } from "@/app/(user)/canvas/agent/canvas-agent-tools";
 import { calibrateCanvasAgentTokenEstimate } from "@/app/(user)/canvas/agent/canvas-agent-memory";
@@ -377,13 +377,10 @@ async function requestGeminiCompletion(config: CanvasAgentAiConfig, systemPrompt
         ...(jsonSchema ? { generationConfig: { responseFormat: { text: { mimeType: "application/json", schema: jsonSchema } } } } : {}),
     };
     applyCanvasAgentReasoning(body, config, "gemini");
-    const proxy = Boolean(aiApiUrl(config, "/chat/completions").startsWith("/api/"));
-    const channel = localChannelForActiveModel(config);
-    const { model: _model, stream: _stream, ...nativeBody } = body;
-    const response = await fetch(proxy ? aiApiUrl(config, "/chat/completions") : geminiActionUrl(channel?.baseUrl || config.baseUrl, config.model, config.textStreaming ? "streamGenerateContent" : "generateContent"), {
+    const response = await fetch(aiApiUrl(config, "/chat/completions"), {
         method: "POST",
-        headers: proxy ? aiHeaders(config, "application/json") : geminiDirectHeaders(config),
-        body: JSON.stringify(proxy ? body : nativeBody),
+        headers: aiHeaders(config, "application/json"),
+        body: JSON.stringify(body),
         signal,
     });
     let payload: Record<string, unknown>;
@@ -568,7 +565,7 @@ async function readResponsePayload<T extends object>(response: Response) {
 }
 
 export function canvasAgentTokenCalibrationKey(config: AiConfig) {
-    return `${config.apiMode}:${isGeminiConfig(config) ? "gemini" : "openai"}:${config.baseUrl}:${config.model}`;
+    return `${config.apiMode}:${isGeminiConfig(config) ? "gemini" : "openai"}:${config.textChannelId}:${config.model}`;
 }
 
 function hasImageContent(messages: CanvasAgentProtocolMessage[]) {

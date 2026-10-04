@@ -9,19 +9,20 @@ import { isAutoDLConfig, normalizeAutoDLDuration } from "@/lib/autodl";
 import { boolConfig, isSeedanceFastOrMiniModel, isSeedanceVideoConfig, normalizeSeedanceDuration, normalizeSeedanceRatio, normalizeSeedanceResolution, seedanceDurationOptions, seedancePixelLabel, seedanceRatioOptions, seedanceResolutionOptions } from "@/lib/seedance-video";
 import { type CanvasTheme } from "@/lib/canvas-theme";
 import { COGVIDEOX3_DURATIONS, isCogVideoX3Model, modelKey, normalizeCogVideoX3Duration, supportsVideoAudioGeneration } from "@/lib/video-model-capabilities";
-import { grokVideoModeOptions, isAPIMartKlingV26Config, isAPIMartKlingV3Config, isKIEGrokVideoModel, isKIEKlingV3Config, klingV26DurationOptions, klingV26ModeOptions, klingV26RatioLabels, klingV26RatioOptions, klingV3DurationOptions, klingV3ModeOptions, normalizeKlingV26Duration, normalizeKlingV26Ratio, normalizeKlingV3Duration } from "@/services/api/protocols/kling-models";
+import { grokVideoModeOptions, isAPIMartKlingV26Config, isAPIMartKlingV3Config, isKIEGrokVideoModel, isKIEKlingV3Config, klingV26DurationOptions, klingV26ModeOptions, klingV26RatioOptions, klingV3DurationOptions, klingV3ModeOptions, normalizeKlingV26Duration, normalizeKlingV26Ratio, normalizeKlingV3Duration } from "@/services/api/protocols/kling-models";
 import { channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
 
 export { isAPIMartKlingV26Config, isAPIMartKlingV3Config, isAPIMartKlingMotionControlConfig, isKIEKlingV3Config, kieKlingOmniVariant, isKIEKlingMotionControlConfig, isKIEGrokVideoModel } from "@/services/api/protocols/kling-models";
 
 export const videoResolutionOptions = [
-    { value: "720", label: "720p" },
     { value: "480", label: "480p" },
+    { value: "720", label: "720p" },
     { value: "1080", label: "1080p" },
     { value: "2k", label: "2K" },
     { value: "4k", label: "4K" },
 ];
-const resolutionButtonOptions = videoResolutionOptions.slice(0, 2);
+const seedanceResolutionButtonOptions = [{ value: "720", label: "720p" }, { value: "480", label: "480p" }];
+const resolutionButtonOptions = videoResolutionOptions;
 
 const sizeOptions = [
     { value: "1280x720", label: "横屏", width: 1280, height: 720 },
@@ -59,30 +60,11 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
     const grokMode = config.videoMode === "fun" || config.videoMode === "spicy" ? config.videoMode : "normal";
     const cogVideoX3 = isCogVideoX3Model(model);
     const seconds = autodl ? config.videoSeconds ?? "" : cogVideoX3 ? normalizeCogVideoX3Duration(config.videoSeconds) : config.videoSeconds || "6";
-    const size = normalizeVideoSizeValue(config.size);
-    const dimensions = readSizeDimensions(size);
     const resolution = normalizeVideoResolutionValue(config.vquality);
     const audioGenerationEnabled = supportsVideoAudioGeneration(model, channelProtocolForConfig({ ...config, model, videoModel: model }));
     const generateAudio = boolConfig(config.videoGenerateAudio, false);
     const updateResolution = (value: string) => {
-        const nextResolution = normalizeVideoResolutionValue(value);
-        onConfigChange("vquality", nextResolution);
-        onConfigChange("size", videoSizeForResolution(nextResolution, config.size));
-    };
-    const updateDimension = (key: "width" | "height", value: number | null) => {
-        const next = Math.max(1, Math.floor(value || dimensions[key] || 720));
-        const width = key === "width" ? next : dimensions.width;
-        const height = key === "height" ? next : dimensions.height;
-        const pixels = width * height;
-        const nearestResolution = ["480", "720", "1080", "2k", "4k"].reduce((nearest, candidate) => {
-            const [candidateWidth, candidateHeight] = seedancePixelLabel(candidate, "16:9").split("x").map(Number);
-            const [nearestWidth, nearestHeight] = seedancePixelLabel(nearest, "16:9").split("x").map(Number);
-            return Math.abs(candidateWidth * candidateHeight - pixels) < Math.abs(nearestWidth * nearestHeight - pixels)
-                ? candidate
-                : nearest;
-        });
-        onConfigChange("size", `${width}x${height}`);
-        onConfigChange("vquality", nearestResolution);
+        onConfigChange("vquality", normalizeVideoResolutionValue(value));
     };
 
     return (
@@ -100,55 +82,35 @@ export function VideoSettingsPanel({ config, modelName, onConfigChange, theme, s
                         </div>
                     </SettingGroup>
                 ) : null}
-                <SettingGroup title="清晰度" color={theme.node.muted}>
-                    <div className="grid grid-cols-3 gap-2.5">
+                <SettingGroup title="分辨率" color={theme.node.muted}>
+                    <div className="grid grid-cols-5 gap-1 rounded-xl p-1" style={{ background: theme.node.fill }}>
                         {resolutionButtonOptions.map((item) => (
-                            <OptionPill key={item.value} selected={resolution === item.value} theme={theme} onClick={() => updateResolution(item.value)}>
+                            <SegmentOption key={item.value} selected={resolution === item.value} theme={theme} onClick={() => updateResolution(item.value)}>
                                 {item.label}
-                            </OptionPill>
+                            </SegmentOption>
                         ))}
-                        <ResolutionInput value={resolution} theme={theme} onChange={updateResolution} />
                     </div>
                 </SettingGroup>
-                <SettingGroup title="尺寸" color={theme.node.muted}>
-                    <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2.5">
-                        <DimensionInput prefix="W" value={dimensions.width} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("width", value)} />
-                        <span className="text-lg opacity-45">↔</span>
-                        <DimensionInput prefix="H" value={dimensions.height} disabled={size === "auto"} theme={theme} onChange={(value) => updateDimension("height", value)} />
-                    </div>
-                    <div className="grid grid-cols-3 gap-2.5">
+                <SettingGroup title="比例" color={theme.node.muted}>
+                    <div className="grid grid-cols-4 gap-1 rounded-xl p-1" style={{ background: theme.node.fill }}>
                         {seedanceRatioOptions.map((item) => (
                             <button
                                 key={item.value}
                                 type="button"
-                                className="flex h-[68px] cursor-pointer flex-col items-center justify-center gap-1 rounded-xl border bg-transparent px-1 text-sm transition hover:opacity-80"
+                                className="flex min-h-[54px] cursor-pointer flex-col items-center justify-center gap-1 rounded-lg px-1 text-xs transition hover:opacity-75"
                                 style={{
-                                    borderColor: normalizeSeedanceRatio(config.size) === item.value
-                                        ? theme.node.text
-                                        : theme.node.stroke,
-                                    color: theme.node.text,
+                                    background: normalizeSeedanceRatio(config.size) === item.value ? theme.toolbar.activeBg : "transparent",
+                                    color: normalizeSeedanceRatio(config.size) === item.value ? theme.toolbar.activeText : theme.node.muted,
                                 }}
                                 onMouseDown={(event) => event.stopPropagation()}
-                                onClick={() =>
-                                    onConfigChange(
-                                        "size",
-                                        item.value === "adaptive"
-                                            ? "auto"
-                                            : seedancePixelLabel(resolution, item.value),
-                                    )
-                                }
+                                onClick={() => onConfigChange("size", item.value === "adaptive" ? "auto" : item.value)}
                             >
                                 <SizePreview
                                     width={ratioPreview(item.value).width}
                                     height={ratioPreview(item.value).height}
-                                    color={theme.node.text}
+                                    color={normalizeSeedanceRatio(config.size) === item.value ? theme.toolbar.activeText : theme.node.muted}
                                 />
-                                <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">
-                                    {item.value === "adaptive"
-                                        ? "adaptive"
-                                        : seedancePixelLabel(resolution, item.value)}
-                                </span>
+                                <span>{item.value === "adaptive" ? "自适应" : item.value}</span>
                             </button>
                         ))}
                     </div>
@@ -197,7 +159,7 @@ function KlingV26VideoSettingsPanel({ config, modelName, onConfigChange, theme, 
                         />
                     </SettingGroup>
                 )}
-                <SettingGroup title="模式选择" color={theme.node.muted}>
+                <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className={`grid gap-2.5 ${isV3 ? "grid-cols-3" : "grid-cols-2"}`}>
                         {(isV3 ? klingV3ModeOptions : klingV26ModeOptions).map((item) => (
                             <button
@@ -227,7 +189,6 @@ function KlingV26VideoSettingsPanel({ config, modelName, onConfigChange, theme, 
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{klingV26RatioLabels[item.value]}</span>
                             </button>
                         ))}
                     </div>
@@ -270,7 +231,7 @@ function SeedanceVideoSettingsPanel({ config, modelName, onConfigChange, theme, 
                 {showTitle ? <div className="text-lg font-semibold">视频设置</div> : null}
                 <SettingGroup title="分辨率" color={theme.node.muted}>
                     <div className="grid grid-cols-3 gap-2.5">
-                        {(seedance20 ? resolutionButtonOptions : seedanceResolutionOptions).map((item) => {
+                        {(seedance20 ? seedanceResolutionButtonOptions : seedanceResolutionOptions).map((item) => {
                             const disabled = item.value === "1080p" && isSeedanceFastOrMiniModel(model);
                             return (
                                 <OptionPill key={item.value} selected={resolution === item.value} disabled={disabled} theme={theme} onClick={() => onConfigChange("vquality", item.value)}>
@@ -295,7 +256,6 @@ function SeedanceVideoSettingsPanel({ config, modelName, onConfigChange, theme, 
                             >
                                 <SizePreview width={ratioPreview(item.value).width} height={ratioPreview(item.value).height} color={theme.node.text} />
                                 <span>{item.label}</span>
-                                <span className="text-[10px] leading-none opacity-55">{item.value === "adaptive" ? "adaptive" : seedancePixelLabel(resolution, item.value)}</span>
                             </button>
                         ))}
                     </div>
@@ -333,11 +293,11 @@ export function videoResolutionLabel(value: string) {
 export function videoSizeLabel(value: string) {
     const ratio = normalizeSeedanceRatio(value);
     if (value === "adaptive" || value === "auto") return "自适应";
-    if (ratio === value) return seedanceRatioOptions.find((item) => item.value === ratio)?.label || ratio;
+    if (ratio === value) return seedanceRatioOptions.find((item) => item.value === ratio)?.value || ratio;
     const presetRatio = seedanceRatioOptions.find((item) =>
         item.value !== "adaptive" && videoResolutionOptions.some((resolution) => seedancePixelLabel(resolution.value, item.value) === value),
     );
-    if (presetRatio) return presetRatio.label;
+    if (presetRatio) return presetRatio.value;
     const size = normalizeVideoSizeValue(value);
     return sizeOptions.find((item) => item.value === size)?.label || size;
 }
@@ -383,6 +343,10 @@ function OptionPill({ selected, disabled = false, theme, onClick, children }: { 
     );
 }
 
+function SegmentOption({ selected, theme, onClick, children }: { selected: boolean; theme: CanvasTheme; onClick: () => void; children: ReactNode }) {
+    return <button type="button" className="h-9 min-w-0 rounded-lg px-1 text-xs transition hover:opacity-75" style={{ background: selected ? theme.toolbar.activeBg : "transparent", color: selected ? theme.toolbar.activeText : theme.node.muted }} onMouseDown={(event) => event.stopPropagation()} onClick={onClick}>{children}</button>;
+}
+
 function SettingGroup({ title, color, children }: { title: string; color: string; children: ReactNode }) {
     return (
         <div className="space-y-2.5">
@@ -403,17 +367,6 @@ function ResolutionInput({ value, theme, onChange }: { value: string; theme: Can
                     p
                 </span>
             ) : null}
-        </label>
-    );
-}
-
-function DimensionInput({ prefix, value, disabled, theme, onChange }: { prefix: string; value: number; disabled: boolean; theme: CanvasTheme; onChange: (value: number | null) => void }) {
-    return (
-        <label className="flex h-9 overflow-hidden rounded-xl text-sm" style={{ background: theme.node.fill, color: theme.node.text, opacity: disabled ? 0.55 : 1 }}>
-            <span className="grid w-9 place-items-center" style={{ color: theme.node.muted }}>
-                {prefix}
-            </span>
-            <input type="number" min={1} disabled={disabled} className="min-w-0 flex-1 bg-transparent px-2 outline-none [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none" value={value || ""} onChange={(event) => onChange(Number(event.target.value) || null)} onMouseDown={(event) => event.stopPropagation()} />
         </label>
     );
 }
@@ -462,11 +415,5 @@ function AudioGenerationSetting({ checked, hint, theme, onChange }: { checked: b
             </div>
         </SettingGroup>
     );
-}
-
-function readSizeDimensions(size: string) {
-    if (size === "auto") return { width: 0, height: 0 };
-    const match = size.match(/^(\d+)x(\d+)$/);
-    return { width: Number(match?.[1]) || 1280, height: Number(match?.[2]) || 720 };
 }
 

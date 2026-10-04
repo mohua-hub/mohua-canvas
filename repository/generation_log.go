@@ -6,108 +6,6 @@ import (
 	"github.com/tigerowo/infinite-canvas/model"
 )
 
-func ListVideoGenerationLogs(workspaceID string, limit int) ([]model.VideoGenerationLog, error) {
-	db, err := DB()
-	if err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = 500
-	}
-	var logs []model.VideoGenerationLog
-	err = db.Where("workspace_id = ? AND deleted_at = ?", workspaceID, "").Order("created_at DESC").Limit(limit).Find(&logs).Error
-	return logs, err
-}
-
-func HasAnyVideoGenerationLog(workspaceID string) (bool, error) {
-	db, err := DB()
-	if err != nil {
-		return false, err
-	}
-	var count int64
-	err = db.Model(&model.VideoGenerationLog{}).Where("workspace_id = ?", workspaceID).Count(&count).Error
-	return count > 0, err
-}
-
-func UpsertVideoGenerationLogs(workspaceID string, logs []model.VideoGenerationLog) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	for _, log := range logs {
-		log.WorkspaceID = workspaceID
-		if strings.TrimSpace(log.ID) == "" || isDeletedVideoGenerationLog(workspaceID, log) {
-			continue
-		}
-		var existing model.VideoGenerationLog
-		found := false
-		if err := db.Where("workspace_id = ? AND id = ?", workspaceID, log.ID).First(&existing).Error; err == nil {
-			found = true
-		} else if log.TaskID != "" {
-			if err := db.Where("workspace_id = ? AND deleted_at = ? AND task_id = ?", workspaceID, "", log.TaskID).First(&existing).Error; err == nil {
-				found = true
-			}
-		}
-		if !found && log.VideoID != "" {
-			if err := db.Where("workspace_id = ? AND deleted_at = ? AND video_id = ?", workspaceID, "", log.VideoID).First(&existing).Error; err == nil {
-				found = true
-			}
-		}
-		if found {
-			log.ID = existing.ID
-			log.WorkspaceID = workspaceID
-			log.DeletedAt = ""
-		}
-		if err := db.Save(&log).Error; err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func SoftDeleteVideoGenerationLog(workspaceID string, id string, deletedAt string) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	var log model.VideoGenerationLog
-	err = db.Where("workspace_id = ? AND (id = ? OR task_id = ? OR video_id = ?)", workspaceID, id, id, id).First(&log).Error
-	if err != nil {
-		return nil
-	}
-	return db.Model(&log).Updates(map[string]any{
-		"deleted_at":   deletedAt,
-		"updated_at":   deletedAt,
-		"payload_json": "",
-	}).Error
-}
-
-func SoftDeleteVideoGenerationLogs(workspaceID string, ids []string, deletedAt string) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	keys := generationLogIdentityValues(ids...)
-	if len(keys) == 0 {
-		return nil
-	}
-	return db.Model(&model.VideoGenerationLog{}).
-		Where("workspace_id = ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", workspaceID, keys, keys, keys).
-		Updates(map[string]any{
-			"deleted_at":   deletedAt,
-			"updated_at":   deletedAt,
-			"payload_json": "",
-		}).Error
-}
-
-func CleanupDeletedVideoGenerationLogs(before string) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	return db.Where("deleted_at <> ? AND deleted_at < ?", "", before).Delete(&model.VideoGenerationLog{}).Error
-}
-
 func ListImageGenerationLogs(workspaceID string, limit int) ([]model.ImageGenerationLog, error) {
 	db, err := DB()
 	if err != nil {
@@ -208,22 +106,6 @@ func CleanupDeletedImageGenerationLogs(before string) error {
 		return err
 	}
 	return db.Where("deleted_at <> ? AND deleted_at < ?", "", before).Delete(&model.ImageGenerationLog{}).Error
-}
-
-func isDeletedVideoGenerationLog(workspaceID string, log model.VideoGenerationLog) bool {
-	db, err := DB()
-	if err != nil {
-		return false
-	}
-	keys := generationLogIdentityValues(log.ID, log.TaskID, log.VideoID)
-	if len(keys) == 0 {
-		return false
-	}
-	var count int64
-	_ = db.Model(&model.VideoGenerationLog{}).
-		Where("workspace_id = ? AND deleted_at <> ? AND (id IN ? OR task_id IN ? OR video_id IN ?)", workspaceID, "", keys, keys, keys).
-		Count(&count).Error
-	return count > 0
 }
 
 func isDeletedImageGenerationLog(workspaceID string, log model.ImageGenerationLog) bool {

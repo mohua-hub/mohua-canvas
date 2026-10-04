@@ -38,96 +38,24 @@ type CustomStorageProviders struct {
 	WebDAV *StorageObjectProviderInput `json:"webdav,omitempty"`
 }
 
-type workspaceModelConfigInput struct {
-	LocalChannels []localModelChannelInput `json:"localChannels"`
+type workspaceWorkflowChannel struct {
+	ChannelID string                `json:"channelId"`
+	Protocol  string                `json:"protocol"`
+	Workflows []model.WorkflowEntry `json:"workflows"`
 }
 
-type localModelChannelInput struct {
-	ID       string   `json:"id"`
-	Protocol string   `json:"protocol"`
-	Name     string   `json:"name"`
-	BaseURL  string   `json:"baseUrl"`
-	APIKey   string   `json:"apiKey"`
-	Models   []string `json:"models"`
-}
-
-func SelectLocalModelChannelForModel(workspaceID string, modelName string, channelID string) (model.ModelChannel, error) {
-	workspaceID = strings.TrimSpace(workspaceID)
-	modelName = strings.TrimSpace(modelName)
-	channelID = strings.TrimSpace(channelID)
-	if workspaceID == "" {
-		return model.ModelChannel{}, errors.New("缺少工作区标识")
+func personalWorkflowChannels(workspaceID string) ([]workspaceWorkflowChannel, error) {
+	stored, exists, err := repository.GetWorkspaceConfig(workspaceID)
+	if err != nil || !exists || strings.TrimSpace(stored.ModelConfig) == "" {
+		return nil, err
 	}
-	if modelName == "" {
-		return model.ModelChannel{}, errors.New("缺少模型名称")
+	var config struct {
+		WorkflowChannels []workspaceWorkflowChannel `json:"workflowChannels"`
 	}
-	if channelID == "" {
-		return model.ModelChannel{}, errors.New("缺少模型渠道")
+	if err := json.Unmarshal([]byte(stored.ModelConfig), &config); err != nil {
+		return nil, errors.New("本地工作流配置格式无效")
 	}
-	config, ok, err := repository.GetWorkspaceConfig(workspaceID)
-	if err != nil {
-		return model.ModelChannel{}, err
-	}
-	if !ok || strings.TrimSpace(config.ModelConfig) == "" {
-		return model.ModelChannel{}, errors.New("本地渠道不存在")
-	}
-	var modelConfig workspaceModelConfigInput
-	if err := json.Unmarshal([]byte(config.ModelConfig), &modelConfig); err != nil {
-		return model.ModelChannel{}, err
-	}
-	for _, channel := range modelConfig.LocalChannels {
-		if strings.TrimSpace(channel.ID) != channelID {
-			continue
-		}
-		baseURL := strings.TrimSpace(channel.BaseURL)
-		apiKey := strings.TrimSpace(channel.APIKey)
-		if baseURL == "" || apiKey == "" {
-			return model.ModelChannel{}, errors.New("本地渠道配置不完整")
-		}
-		models := localChannelModels(channel.Models)
-		if len(models) > 0 && !localChannelHasModel(models, modelName) {
-			return model.ModelChannel{}, errors.New("本地渠道不支持该模型")
-		}
-		protocol := strings.ToLower(strings.TrimSpace(channel.Protocol))
-		if protocol == "" {
-			protocol = "openai"
-		}
-		return model.ModelChannel{
-			ID:       channelID,
-			Protocol: protocol,
-			Name:     firstVideoTaskValue(strings.TrimSpace(channel.Name), "本地直连"),
-			BaseURL:  baseURL,
-			APIKey:   apiKey,
-			Models:   models,
-			Weight:   1,
-			Timeout:  600,
-			Enabled:  true,
-		}, nil
-	}
-	return model.ModelChannel{}, errors.New("本地渠道不存在")
-}
-
-func localChannelModels(models []string) []string {
-	result := make([]string, 0, len(models))
-	seen := map[string]bool{}
-	for _, item := range models {
-		modelName := strings.TrimSpace(item)
-		if modelName == "" || seen[modelName] {
-			continue
-		}
-		result = append(result, modelName)
-		seen[modelName] = true
-	}
-	return result
-}
-
-func localChannelHasModel(models []string, modelName string) bool {
-	for _, item := range models {
-		if strings.EqualFold(strings.TrimSpace(item), modelName) {
-			return true
-		}
-	}
-	return false
+	return config.WorkflowChannels, nil
 }
 
 func CurrentWorkspaceConfig(ctx context.Context) (WorkspaceConfigPayload, error) {
@@ -147,7 +75,11 @@ func CurrentWorkspaceConfig(ctx context.Context) (WorkspaceConfigPayload, error)
 		return result, nil
 	}
 	if strings.TrimSpace(config.ModelConfig) != "" {
-		result.ModelConfig = json.RawMessage(config.ModelConfig)
+		cleanConfig, err := sanitizeWorkspaceModelConfig(json.RawMessage(config.ModelConfig))
+		if err != nil {
+			return WorkspaceConfigPayload{}, err
+		}
+		result.ModelConfig = cleanConfig
 	}
 	if strings.TrimSpace(config.StorageProvider) != "" {
 		providers := readCustomStorageProviders(config.StorageProvider)
@@ -184,6 +116,10 @@ func readCustomStorageProviders(raw string) CustomStorageProviders {
 }
 
 func SaveCurrentWorkspaceModelConfig(ctx context.Context, raw json.RawMessage) (WorkspaceConfigPayload, error) {
+	cleanConfig, err := sanitizeWorkspaceModelConfig(raw)
+	if err != nil {
+		return WorkspaceConfigPayload{}, err
+	}
 	workspaceID := WorkspaceID
 	config, _, err := repository.GetWorkspaceConfig(workspaceID)
 	if err != nil {
@@ -194,12 +130,28 @@ func SaveCurrentWorkspaceModelConfig(ctx context.Context, raw json.RawMessage) (
 		config.WorkspaceID = workspaceID
 		config.CreatedAt = current
 	}
-	config.ModelConfig = string(raw)
+	config.ModelConfig = string(cleanConfig)
 	config.UpdatedAt = current
 	if _, err := repository.SaveWorkspaceConfig(config); err != nil {
 		return WorkspaceConfigPayload{}, err
 	}
 	return CurrentWorkspaceConfig(ctx)
+}
+
+func sanitizeWorkspaceModelConfig(raw json.RawMessage) (json.RawMessage, error) {
+	var value any
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return nil, err
+	}
+	if config, ok := value.(map[string]any); ok {
+		for key := range config {
+			switch strings.ToLower(strings.TrimSpace(key)) {
+			case "channelmode", "baseurl", "apikey", "api_key", "localchannels", "publicchannels":
+				delete(config, key)
+			}
+		}
+	}
+	return json.Marshal(value)
 }
 
 func CurrentWorkspaceImageHistory(ctx context.Context) (json.RawMessage, error) {

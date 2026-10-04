@@ -3,10 +3,10 @@ import type { CanvasNodeMetadata } from "../types";
 import type { ReferenceImage } from "@/types/image";
 import type { ReferenceAudio, ReferenceVideo } from "@/types/media";
 import { workflowMediaSource } from "@/services/api/workflow-generation";
-import { normalizeLocalChannels, type AiConfig } from "@/stores/use-config-store";
+import { normalizeModelChannels, type AiConfig } from "@/stores/use-config-store";
 
 export function canvasDefaultWorkflowRef(config: AiConfig, ref?: WorkflowRef) {
-    const channels = ref?.scope === "system" ? config.publicChannels : normalizeLocalChannels(config);
+    const channels = normalizeModelChannels(config);
     return channels.find((channel) => channel.id === ref?.channelId)?.protocol === "comfyui" ? ref : undefined;
 }
 

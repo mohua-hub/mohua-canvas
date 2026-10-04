@@ -16,7 +16,6 @@ type CanvasImageTaskCreateInput struct {
 	ClientTaskID    string
 	Model           string
 	ChannelID       string
-	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
 	Prompt          string
@@ -36,7 +35,6 @@ func CreateCanvasImageTask(input CanvasImageTaskCreateInput) (model.CanvasImageT
 		NodeID:          strings.TrimSpace(input.NodeID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
 		Status:          "queued",
@@ -58,34 +56,6 @@ func CreateCanvasImageTask(input CanvasImageTaskCreateInput) (model.CanvasImageT
 
 func GetWorkspaceCanvasImageTask(workspaceID string, id string) (model.CanvasImageTask, bool, error) {
 	return repository.GetWorkspaceCanvasImageTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
-}
-
-func ListWorkspaceCanvasImageTasks(workspaceID string, sources []string, limit int) ([]map[string]any, error) {
-	tasks, err := repository.ListWorkspaceCanvasImageTasks(strings.TrimSpace(workspaceID), normalizeCanvasImageTaskSources(sources), limit)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]map[string]any, 0, len(tasks))
-	for _, task := range tasks {
-		result = append(result, CanvasImageTaskResponse(task))
-	}
-	return result, nil
-}
-
-func BatchWorkspaceCanvasImageTasks(workspaceID string, ids []string) ([]map[string]any, error) {
-	tasks, err := repository.BatchWorkspaceCanvasImageTasks(strings.TrimSpace(workspaceID), ids)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]map[string]any, 0, len(tasks))
-	for _, task := range tasks {
-		result = append(result, CanvasImageTaskResponse(task))
-	}
-	return result, nil
-}
-
-func DeleteWorkspaceCanvasImageTask(workspaceID string, id string) error {
-	return repository.DeleteWorkspaceCanvasImageTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
 func DeleteWorkspaceCanvasTasks(workspaceID string, sourceID string, nodeIDs []string) error {
@@ -140,8 +110,6 @@ func CanvasImageTaskResponse(task model.CanvasImageTask) map[string]any {
 
 func normalizeCanvasImageTaskSource(source string) string {
 	switch strings.ToLower(strings.TrimSpace(source)) {
-	case "image-workbench":
-		return "image-workbench"
 	case "workflow":
 		return "workflow"
 	case "canvas", "":
@@ -149,17 +117,4 @@ func normalizeCanvasImageTaskSource(source string) string {
 	default:
 		return "canvas"
 	}
-}
-
-func normalizeCanvasImageTaskSources(sources []string) []string {
-	result := make([]string, 0, len(sources))
-	seen := map[string]bool{}
-	for _, source := range sources {
-		normalized := normalizeCanvasImageTaskSource(source)
-		if normalized != "" && !seen[normalized] {
-			result = append(result, normalized)
-			seen[normalized] = true
-		}
-	}
-	return result
 }

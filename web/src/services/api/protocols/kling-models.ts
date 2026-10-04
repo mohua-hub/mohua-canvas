@@ -1,6 +1,6 @@
 import { seedanceRatioOptions } from "@/lib/seedance-video";
 import { modelKey } from "@/lib/video-model-capabilities";
-import { channelIdForActiveModel, channelProtocolForConfig, localChannelForActiveModel, type AiConfig } from "@/stores/use-config-store";
+import { channelIdForActiveModel, channelProtocolForConfig, type AiConfig } from "@/stores/use-config-store";
 
 export const klingV26ModeOptions = [
     { value: "std", title: "标准模式", desc: "(720P 无声)" },
@@ -61,7 +61,7 @@ function isProviderKlingConfig(config: AiConfig, modelName: string, key: string,
     if (modelKey(model) !== key) return false;
     const scopedConfig = { ...config, model, videoModel: model };
     const channelId = channelIdForActiveModel(scopedConfig);
-    const channels = config.channelMode === "remote" ? config.publicChannels : [localChannelForActiveModel(scopedConfig)];
+    const channels = config.publicChannels;
     const channel = channels.find((item) => (item?.id || "") === channelId) || channels[0];
     const record = channel as { id?: string; name?: string; baseUrl?: string; remark?: string } | undefined;
     const text = [record?.id, record?.name, record?.baseUrl, record?.remark].filter(Boolean).join(" ").toLowerCase();

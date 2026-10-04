@@ -35,12 +35,12 @@ bun run dev
 
 ## 首次使用建议
 
-- 先打开右上角配置弹窗，填入自己的 `Base URL`、`API Key` 和模型名。
-- 使用系统渠道时，进入 `/settings` 配置本地服务保存的模型与渠道；RunningHub 仅需一个 API Key。
+- 进入 `/settings` 配置 AI 渠道、模型和存储；AI 请求由本机 Go 服务转发，渠道密钥保存在本机服务设置中。
+- 配置 RunningHub 时只需填写一个 API Key。
 - 如果需要提示词仓库内容，可进入 `/settings/prompts` 拉取或同步。
 
 ## 说明
 
 - 画布项目和“我的素材”保存在浏览器或桌面 WebView 本地；本地服务连接且同步可用时，同时保存到本机工作区。浏览器版与桌面版的本地数据目录各自独立。
 - AI 接口、RunningHub、提示词仓库及可选 S3/R2、WebDAV 存储需要连接相应外部服务；应用自身在本机运行。
-- 本地直连模式下，AI API Key 保存在浏览器本地，并由前端直接请求 OpenAI 兼容接口。
+- 所有 AI 请求均经本机 Go 服务发送，AI 渠道与 API Key 统一在 `/settings` 管理，不随工作区配置同步。

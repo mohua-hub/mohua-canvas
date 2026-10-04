@@ -5,7 +5,6 @@ import { useCanvasStore } from "@/app/(user)/canvas/stores/use-canvas-store";
 import { useAssetStore, mergeAssets } from "@/stores/use-asset-store";
 import { useBackendStore } from "@/stores/use-backend-store";
 import { fetchWorkspaceConfig, syncWorkspaceAssetData, syncWorkspaceImageHistory } from "./api/workspace-config";
-import { saveVideoGenerationLogs } from "./api/generation-logs";
 
 export async function checkLocalAssetsExist(): Promise<boolean> {
     const imageStore = localforage.createInstance({ name: "infinite-canvas", storeName: "image_files" });
@@ -213,33 +212,7 @@ export async function migrateLocalAssetsToCloud(
         }
     }
 
-    // 7. Update Video Generation Logs
-    const videoLogStore = localforage.createInstance({ name: "infinite-canvas", storeName: "video_generation_logs" });
-    const localVideoLogs: any[] = [];
-    await videoLogStore.iterate((value) => {
-        localVideoLogs.push(value);
-    });
-
-    if (localVideoLogs.length > 0) {
-        try {
-            const videoLogsStr = JSON.stringify({ logs: localVideoLogs });
-            const replacedVideoLogsStr = await replaceKeysInString(videoLogsStr);
-            const nextVideoLogsData = JSON.parse(replacedVideoLogsStr);
-
-            // Save locally
-            await videoLogStore.clear();
-            await Promise.all(
-                nextVideoLogsData.logs.map((log: any) => videoLogStore.setItem(log.id, log))
-            );
-
-            // Sync to server
-            await saveVideoGenerationLogs(nextVideoLogsData.logs);
-        } catch (e) {
-            console.error("Failed to migrate video logs", e);
-        }
-    }
-
-    // 8. Cache old local files under the new server keys
+    // 7. Cache old local files under the new server keys
     for (const [localKey, value] of keyMapping.entries()) {
         if (localKey.startsWith("image:")) {
             const blob = await imageStore.getItem<Blob>(localKey);

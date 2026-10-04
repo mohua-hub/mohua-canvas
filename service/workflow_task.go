@@ -186,7 +186,7 @@ func workflowTaskSnapshot(workspaceID, taskID string) (workflowSnapshot, bool, e
 		if !found || err != nil {
 			return workflowSnapshot{}, found, err
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: append([]string{}, task.ImageURLs...), Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: append([]string{}, task.ImageURLs...), Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: task.ChannelID, ChannelName: task.ChannelName}}, true, nil
 	case strings.HasPrefix(taskID, "wf-video-"):
 		task, found, err := repository.GetWorkspaceVideoTask(workspaceID, taskID)
 		if !found || err != nil {
@@ -196,7 +196,7 @@ func workflowTaskSnapshot(workspaceID, taskID string) (workflowSnapshot, bool, e
 		if task.VideoURL != "" {
 			urls = append(urls, task.VideoURL)
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: task.UpstreamTaskID, createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: task.UpstreamTaskID, createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: task.ChannelID, ChannelName: task.ChannelName}}, true, nil
 	case strings.HasPrefix(taskID, "wf-audio-"):
 		task, found, err := repository.GetWorkspaceCanvasAudioTask(workspaceID, taskID)
 		if !found || err != nil {
@@ -206,7 +206,7 @@ func workflowTaskSnapshot(workspaceID, taskID string) (workflowSnapshot, bool, e
 		if task.AudioURL != "" {
 			urls = append(urls, task.AudioURL)
 		}
-		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: firstNonEmpty(task.ChannelID, task.LocalChannelID), ChannelName: task.ChannelName}}, true, nil
+		return workflowSnapshot{result: WorkflowTaskResult{ID: task.ID, Status: workflowPublicStatus(task.Status), Progress: task.Progress, URLs: urls, Error: task.Error}, ref: task.WorkflowRef, upstreamID: workflowUpstreamID(task.ResponseBody), createdAt: task.CreatedAt, log: AICallLogInput{Model: task.Model, ChannelID: task.ChannelID, ChannelName: task.ChannelName}}, true, nil
 	}
 	return workflowSnapshot{}, false, nil
 }
@@ -236,29 +236,24 @@ func workflowEntryName(ref WorkflowRef) string {
 }
 
 func createWorkflowTaskRecord(workspaceID string, id string, resolved ResolvedWorkflow, input WorkflowRunInput, ref string) error {
-	channelID, localChannelID := "", ""
-	if input.Ref.Scope == "system" {
-		channelID = input.Ref.ChannelID
-	} else {
-		localChannelID = input.Ref.ChannelID
-	}
+	channelID := input.Ref.ChannelID
 	switch resolved.Entry.Capability {
 	case "image":
 		source := "workflow"
-		if input.Source == "image-workbench" || input.Source == "canvas" {
+		if input.Source == "canvas" {
 			source = input.Source
 		}
-		_, err := CreateCanvasImageTask(CanvasImageTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
+		_, err := CreateCanvasImageTask(CanvasImageTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
 		return err
 	case "video":
 		source := "workflow"
-		if input.Source == "video-workbench" || input.Source == "canvas" {
+		if input.Source == "canvas" {
 			source = input.Source
 		}
-		_, err := CreateVideoTask(VideoTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Status: "queued", Seconds: input.VideoSeconds, Size: input.Size})
+		_, err := CreateVideoTask(VideoTaskCreateInput{WorkspaceID: workspaceID, Source: source, SourceID: input.SourceID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Status: "queued", Seconds: input.VideoSeconds, Size: input.Size})
 		return err
 	case "audio":
-		_, err := CreateCanvasAudioTask(CanvasAudioTaskCreateInput{WorkspaceID: workspaceID, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, LocalChannelID: localChannelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
+		_, err := CreateCanvasAudioTask(CanvasAudioTaskCreateInput{WorkspaceID: workspaceID, SourceID: input.SourceID, NodeID: input.NodeID, ClientTaskID: id, Model: resolved.Entry.Title, ChannelID: channelID, ChannelName: resolved.Channel.Name, WorkflowRef: ref, Prompt: input.Prompt})
 		return err
 	}
 	return errors.New("工作流用途无效")

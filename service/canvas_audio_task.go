@@ -15,7 +15,6 @@ type CanvasAudioTaskCreateInput struct {
 	ClientTaskID    string
 	Model           string
 	ChannelID       string
-	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
 	Prompt          string
@@ -34,7 +33,6 @@ func CreateCanvasAudioTask(input CanvasAudioTaskCreateInput) (model.CanvasAudioT
 		NodeID:          strings.TrimSpace(input.NodeID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
 		Status:          "queued",

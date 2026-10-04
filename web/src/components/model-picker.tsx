@@ -8,7 +8,7 @@ import { useAutoDLWorkflowNames } from "@/hooks/use-autodl-workflow";
 import { isWorkflowProtocol } from "@/lib/model-channel";
 import { cn } from "@/lib/utils";
 import type { WorkflowRef } from "@/lib/workflow-channel";
-import { filterModelsByCapability, normalizeLocalChannels, useConfigStore, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { filterModelsByCapability, normalizeModelChannels, useConfigStore, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { useBackendStore } from "@/stores/use-backend-store";
 
 type ModelPickerProps = {
@@ -37,14 +37,11 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
     const publicSettings = useConfigStore((state) => state.publicSettings);
     const workflowEnabled = Boolean(onWorkflowChange && capability && capability !== "text");
     const channelOptions = useMemo<PickerOption[]>(() => {
-        const channels =
-            config.channelMode === "remote"
-                ? config.publicChannels.map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "云端渠道", baseUrl: channel.baseUrl, models: channel.models, workflows: channel.workflows || [] }))
-                : normalizeLocalChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "本地渠道", baseUrl: channel.baseUrl, models: channel.models, workflows: channel.workflowSummaries || [] }));
+        const channels = normalizeModelChannels(config).map((channel) => ({ id: channel.id, protocol: channel.protocol, name: channel.name || "模型渠道", baseUrl: channel.baseUrl, models: channel.models, workflows: channel.workflows || [] }));
         const models = channels.filter((channel) => !isWorkflowProtocol(channel.protocol || "")).flatMap((channel) => (channel.models ?? []).map((model) => ({ key: `${channel.id}::${model}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model })));
         const filtered = capability ? models.filter((item) => filterModelsByCapability([item.model], capability, item.protocol || "").length > 0) : models;
         if (!workflowEnabled || !backendConnected) return filtered;
-        const scope = config.channelMode === "remote" ? "system" : "personal";
+        const scope = "system";
         return [...filtered, ...channels.flatMap((channel) => channel.protocol === "comfyui" ? channel.workflows.filter((entry) => entry.enabled && entry.capability === capability && entry.provider === channel.protocol).map((entry) => {
             const ref: WorkflowRef = { scope, channelId: channel.id || "", kind: entry.kind, workflowId: entry.workflowId };
             return { key: `workflow:${JSON.stringify([ref.scope, ref.channelId, ref.kind, ref.workflowId])}`, channelId: channel.id, channelName: channel.name, protocol: channel.protocol, baseUrl: channel.baseUrl, model: "", workflowRef: ref, label: entry.title || entry.workflowId };
@@ -57,7 +54,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
         return channelOptions.find((item) => item.model === value && item.channelId === channelId) || channelOptions.find((item) => item.model === value);
     }, [channelId, channelOptions, value, workflowEnabled, workflowRef]);
     const options = channelOptions;
-    const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : (currentOption || (config.channelMode !== "remote" && !onOpenRunningHub) ? value || "" : "");
+    const current = workflowRef && workflowEnabled ? (currentOption && "label" in currentOption ? currentOption.label : "") : (currentOption ? value || "" : "");
     const emptyLabel = onOpenRunningHub ? "选择模型 / RunningHub" : placeholder;
     const currentValue = current && currentOption ? currentOption.key : "";
 
@@ -87,7 +84,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
             open={open}
             value={current ? currentValue : ""}
             onOpenChange={(nextOpen) => {
-                if (nextOpen && !options.length && config.channelMode === "local" && !onOpenRunningHub) {
+                if (nextOpen && !options.length && !onOpenRunningHub) {
                     onMissingConfig?.();
                     return;
                 }
@@ -145,7 +142,7 @@ export function ModelPicker({ config, value, channelId, capability, onChange, wo
                     ))
                 ) : (
                     <SelectItem value="__empty__" disabled>
-                        {onOpenRunningHub ? "暂无普通模型" : config.channelMode === "remote" ? "暂无可用模型" : "请先到配置里拉取模型列表"}
+                        {onOpenRunningHub ? "暂无普通模型" : "暂无可用模型，请先在设置页面配置并开放模型"}
                     </SelectItem>
                 )}
                 {onOpenRunningHub && !options.length && onMissingConfig ? <SelectItem value="__configure__">配置普通模型渠道</SelectItem> : null}

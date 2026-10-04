@@ -140,7 +140,6 @@ export type AdminPublicModelChannelSettings = {
         workflow: string;
         workflowAgent: string;
     };
-    allowCustomChannel: boolean;
 };
 
 export type AdminPublicModelChannelInfo = {
@@ -192,7 +191,6 @@ export type AdminPrivateSettings = {
         cron: string;
     };
     aiLog: {
-        localDirectReportEnabled: boolean;
         cleanup: {
             enabled: boolean;
             retentionDays: number;

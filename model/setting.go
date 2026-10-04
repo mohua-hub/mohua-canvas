@@ -92,7 +92,6 @@ type PublicModelChannelSetting struct {
 	DefaultTextModel       string                   `json:"defaultTextModel"`
 	SystemPrompt           string                   `json:"systemPrompt"`
 	SystemPrompts          SystemPromptSetting      `json:"systemPrompts"`
-	AllowCustomChannel     *bool                    `json:"allowCustomChannel"`
 }
 
 type SystemPromptSetting struct {
@@ -142,8 +141,7 @@ type PrivateSetting struct {
 }
 
 type AILogSetting struct {
-	LocalDirectReportEnabled *bool               `json:"localDirectReportEnabled"`
-	Cleanup                  AILogCleanupSetting `json:"cleanup"`
+	Cleanup AILogCleanupSetting `json:"cleanup"`
 }
 
 type AILogCleanupSetting struct {

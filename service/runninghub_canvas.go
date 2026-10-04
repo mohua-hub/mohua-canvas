@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"slices"
-	"strings"
 
 	"github.com/tigerowo/infinite-canvas/model"
 	"github.com/tigerowo/infinite-canvas/repository"
@@ -40,28 +39,19 @@ func ListRunningHubCollection(workspaceID string, scope string) ([]RunningHubCol
 		channels = settings.Private.Channels
 		allowed = settings.Public.ModelChannel.AvailableWorkflows
 	case "personal":
-		stored, exists, err := repository.GetWorkspaceConfig(workspaceID)
+		settings, err := repository.GetSettings()
 		if err != nil {
 			return nil, err
 		}
-		if !exists || strings.TrimSpace(stored.ModelConfig) == "" {
-			return []RunningHubCollectionItem{}, nil
+		personalWorkflows, err := personalWorkflowChannels(workspaceID)
+		if err != nil {
+			return nil, err
 		}
-		var config struct {
-			LocalChannels    []model.ModelChannel `json:"localChannels"`
-			WorkflowChannels []struct {
-				ChannelID string                `json:"channelId"`
-				Protocol  string                `json:"protocol"`
-				Workflows []model.WorkflowEntry `json:"workflows"`
-			} `json:"workflowChannels"`
-		}
-		if err := json.Unmarshal([]byte(stored.ModelConfig), &config); err != nil {
-			return nil, errors.New("本地 RunningHub 配置格式无效")
-		}
-		channels = config.LocalChannels
+		channels = settings.Private.Channels
 		for i := range channels {
-			for _, saved := range config.WorkflowChannels {
-				if saved.ChannelID == channels[i].ID && saved.Protocol == "runninghub" {
+			channels[i].Workflows = nil
+			for _, saved := range personalWorkflows {
+				if saved.ChannelID == channels[i].ID && saved.Protocol == channels[i].Protocol {
 					channels[i].Workflows = saved.Workflows
 					break
 				}

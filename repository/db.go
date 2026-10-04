@@ -50,7 +50,6 @@ func DB() (*gorm.DB, error) {
 			&model.AICallLog{},
 			&model.StorageObject{},
 			&model.VideoTask{},
-			&model.VideoGenerationLog{},
 			&model.ImageGenerationLog{},
 			&model.CanvasImageTask{},
 			&model.CanvasAudioTask{},

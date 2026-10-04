@@ -158,10 +158,6 @@ func normalizePublicSettingWithChannels(setting model.PublicSetting, channels []
 	if strings.TrimSpace(setting.ModelChannel.SystemPrompts.WorkflowAgent) == "" {
 		setting.ModelChannel.SystemPrompts.WorkflowAgent = DefaultSystemPrompts().WorkflowAgent
 	}
-	if setting.ModelChannel.AllowCustomChannel == nil {
-		enabled := true
-		setting.ModelChannel.AllowCustomChannel = &enabled
-	}
 	setting.ModelChannel.AvailableModels = filterEnabledModels(setting.ModelChannel.AvailableModels, enabledChannelModels(channels))
 	workflows := []string{}
 	for _, channel := range channels {

@@ -13,6 +13,7 @@ export type WorkflowRunInput = {
     mask?: string;
     size?: string;
     quality?: string;
+    imageResolution?: string;
     transparentBackground?: boolean;
     count?: number;
     videoSeconds?: string;

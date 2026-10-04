@@ -39,27 +39,24 @@ func CreateCanvasImageTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelID = firstNonEmpty(channelID, r.Header.Get("X-Model-Channel-ID"))
-	localChannelID := r.Header.Get(workspaceModelChannelHeader)
-	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(localChannelID) == "" {
+	if strings.TrimSpace(channelID) == "" {
 		Fail(w, "缺少模型渠道")
 		return
 	}
-	channel, resolvedLocalChannelID, err := selectAIRequestChannel(workspaceID, modelName, channelID, localChannelID, true)
+	channel, err := selectAIRequestChannel(modelName, channelID, true)
 	if err != nil {
 		log.Printf("canvas image task select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
 	}
 	task, err := service.CreateCanvasImageTask(service.CanvasImageTaskCreateInput{
-		WorkspaceID:          workspaceID,
-		
-		Source:          source,
+		WorkspaceID:     workspaceID,
+		Source:           source,
 		SourceID:        sourceID,
 		NodeID:          nodeID,
 		ClientTaskID:    clientTaskID,
 		Model:           modelName,
 		ChannelID:       channel.ID,
-		LocalChannelID:   resolvedLocalChannelID,
 		ChannelName:     channel.Name,
 		Prompt:          prompt,
 		GenerationType:  strings.TrimPrefix(endpoint, "/images/"),
@@ -73,7 +70,7 @@ func CreateCanvasImageTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	OK(w, service.CanvasImageTaskResponse(task))
-	go runCanvasImageTask(task, workspaceID, body, contentType, task.ChannelID, task.LocalChannelID)
+	go runCanvasImageTask(task, body, contentType, task.ChannelID)
 }
 
 func GetCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
@@ -89,49 +86,6 @@ func GetCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
 		return
 	}
 	OK(w, service.CanvasImageTaskResponse(task))
-}
-
-func WorkspaceCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
-	workspaceID := service.WorkspaceID
-	tasks, err := service.ListWorkspaceCanvasImageTasks(workspaceID, readCanvasTaskSources(r), 100)
-	if err != nil {
-		log.Printf("list canvas image tasks failed: workspace=%s err=%v", workspaceID, err)
-		Fail(w, "AI 接口请求失败")
-		return
-	}
-	OK(w, tasks)
-}
-
-func BatchCanvasImageTasks(w http.ResponseWriter, r *http.Request) {
-	workspaceID := service.WorkspaceID
-	var request struct {
-		IDs []string `json:"ids"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		Fail(w, "图片任务参数无效")
-		return
-	}
-	tasks, err := service.BatchWorkspaceCanvasImageTasks(workspaceID, request.IDs)
-	if err != nil {
-		log.Printf("batch canvas image tasks failed: workspace=%s err=%v", workspaceID, err)
-		Fail(w, "AI 接口请求失败")
-		return
-	}
-	OK(w, tasks)
-}
-
-func DeleteWorkspaceCanvasImageTask(w http.ResponseWriter, r *http.Request, id string) {
-	workspaceID := service.WorkspaceID
-	if strings.TrimSpace(id) == "" {
-		Fail(w, "图片任务不存在")
-		return
-	}
-	if err := service.DeleteWorkspaceCanvasImageTask(workspaceID, id); err != nil {
-		log.Printf("delete canvas image task failed: workspace=%s id=%s err=%v", workspaceID, id, err)
-		Fail(w, "AI 接口请求失败")
-		return
-	}
-	OK(w, map[string]any{"deleted": true})
 }
 
 func DeleteWorkspaceCanvasTasks(w http.ResponseWriter, r *http.Request) {
@@ -168,26 +122,23 @@ func CreateCanvasAudioTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	channelID = firstNonEmpty(channelID, r.Header.Get("X-Model-Channel-ID"))
-	localChannelID := r.Header.Get(workspaceModelChannelHeader)
-	if strings.TrimSpace(channelID) == "" && strings.TrimSpace(localChannelID) == "" {
+	if strings.TrimSpace(channelID) == "" {
 		Fail(w, "缺少模型渠道")
 		return
 	}
-	channel, resolvedLocalChannelID, err := selectAIRequestChannel(workspaceID, modelName, channelID, localChannelID, true)
+	channel, err := selectAIRequestChannel(modelName, channelID, true)
 	if err != nil {
 		log.Printf("canvas audio task select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
 		return
 	}
 	task, err := service.CreateCanvasAudioTask(service.CanvasAudioTaskCreateInput{
-		WorkspaceID:          workspaceID,
-		
-		SourceID:        sourceID,
+		WorkspaceID:     workspaceID,
+		SourceID:         sourceID,
 		NodeID:          nodeID,
 		ClientTaskID:    clientTaskID,
 		Model:           modelName,
 		ChannelID:       channel.ID,
-		LocalChannelID:   resolvedLocalChannelID,
 		ChannelName:     channel.Name,
 		Prompt:          prompt,
 		Endpoint:        endpoint,
@@ -200,7 +151,7 @@ func CreateCanvasAudioTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	OK(w, service.CanvasAudioTaskResponse(task))
-	go runCanvasAudioTask(task, workspaceID, body, contentType, task.ChannelID, task.LocalChannelID)
+	go runCanvasAudioTask(task, body, contentType, task.ChannelID)
 }
 
 func GetCanvasAudioTask(w http.ResponseWriter, r *http.Request, id string) {
@@ -218,14 +169,14 @@ func GetCanvasAudioTask(w http.ResponseWriter, r *http.Request, id string) {
 	OK(w, service.CanvasAudioTaskResponse(task))
 }
 
-func runCanvasImageTask(task model.CanvasImageTask, workspaceID string, body []byte, contentType string, channelID string, localChannelID string) {
+func runCanvasImageTask(task model.CanvasImageTask, body []byte, contentType string, channelID string) {
 	current := taskTime()
 	task.Status = "processing"
 	task.Progress = 10
 	task.StartedAt = current
 	task, _ = service.SaveCanvasImageTask(task)
 
-	payload, status, responseContentType, err := executeCanvasAIRequest(workspaceID, task.Endpoint, body, contentType, channelID, localChannelID)
+	payload, status, responseContentType, err := executeCanvasAIRequest(task.Endpoint, body, contentType, channelID)
 	if err != nil {
 		saveFailedCanvasImageTask(task, err.Error(), err.Error())
 		return
@@ -263,14 +214,14 @@ func runCanvasImageTask(task model.CanvasImageTask, workspaceID string, body []b
 	_, _ = service.SaveCanvasImageTask(task)
 }
 
-func runCanvasAudioTask(task model.CanvasAudioTask, workspaceID string, body []byte, contentType string, channelID string, localChannelID string) {
+func runCanvasAudioTask(task model.CanvasAudioTask, body []byte, contentType string, channelID string) {
 	current := taskTime()
 	task.Status = "processing"
 	task.Progress = 10
 	task.StartedAt = current
 	task, _ = service.SaveCanvasAudioTask(task)
 
-	payload, status, responseContentType, err := executeCanvasAIRequest(workspaceID, task.Endpoint, body, contentType, channelID, localChannelID)
+	payload, status, responseContentType, err := executeCanvasAIRequest(task.Endpoint, body, contentType, channelID)
 	if err != nil {
 		saveFailedCanvasAudioTask(task, err.Error(), err.Error())
 		return
@@ -320,15 +271,13 @@ func runCanvasAudioTask(task model.CanvasAudioTask, workspaceID string, body []b
 	_, _ = service.SaveCanvasAudioTask(task)
 }
 
-func executeCanvasAIRequest(workspaceID string, endpoint string, body []byte, contentType string, channelID string, localChannelID string) ([]byte, int, string, error) {
+func executeCanvasAIRequest(endpoint string, body []byte, contentType string, channelID string) ([]byte, int, string, error) {
 	request := httptest.NewRequest(http.MethodPost, "http://canvas.local/api/v1"+endpoint, bytes.NewReader(body))
 	request = request.WithContext(context.Background())
 	if contentType != "" {
 		request.Header.Set("Content-Type", contentType)
 	}
-	if strings.TrimSpace(localChannelID) != "" {
-		request.Header.Set(workspaceModelChannelHeader, localChannelID)
-	} else if strings.TrimSpace(channelID) != "" {
+	if strings.TrimSpace(channelID) != "" {
 		request.Header.Set("X-Model-Channel-ID", channelID)
 	}
 	recorder := httptest.NewRecorder()
@@ -717,17 +666,4 @@ func imageSize(data []byte) (int, int) {
 
 func taskTime() string {
 	return time.Now().UTC().Format(time.RFC3339Nano)
-}
-
-func readCanvasTaskSources(r *http.Request) []string {
-	values := r.URL.Query()["source"]
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		for _, item := range strings.Split(value, ",") {
-			if strings.TrimSpace(item) != "" {
-				result = append(result, strings.TrimSpace(item))
-			}
-		}
-	}
-	return result
 }

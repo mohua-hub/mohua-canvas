@@ -455,7 +455,7 @@ export function CanvasAssistantPanel({
             activeChannelId: effectiveConfig.textChannelId || effectiveConfig.activeChannelId,
             textChannelId: effectiveConfig.textChannelId,
         };
-        const jsonToolFallbackKey = [requestConfig.apiMode || "chat", requestConfig.textChannelId || requestConfig.activeChannelId || requestConfig.baseUrl, requestConfig.model].join("|");
+        const jsonToolFallbackKey = [requestConfig.apiMode || "chat", requestConfig.textChannelId || requestConfig.activeChannelId, requestConfig.model].join("|");
         if (mode === "api" && !isAiConfigReady(requestConfig, requestConfig.model)) {
             updateMessage(session.id, assistantId, {
                 text: "全局文本模型尚未配置完成。请先从应用原有的全局配置入口选择文本模型和渠道，然后再继续。",

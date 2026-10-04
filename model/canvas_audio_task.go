@@ -8,7 +8,6 @@ type CanvasAudioTask struct {
 	NodeID          string  `json:"nodeId" gorm:"index:idx_canvas_audio_tasks_workspace_source_node,priority:4"`
 	Model           string  `json:"model"`
 	ChannelID       string  `json:"channelId"`
-	LocalChannelID   string  `json:"localChannelId"`
 	ChannelName     string  `json:"channelName"`
 	WorkflowRef     string  `json:"workflowRef,omitempty" gorm:"type:text"`
 	Status          string  `json:"status"`

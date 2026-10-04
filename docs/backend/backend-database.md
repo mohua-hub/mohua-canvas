@@ -21,7 +21,6 @@ description: 当前后端主要数据表与字段说明
 - `assets`
 - `settings`
 - `video_tasks`
-- `video_generation_logs`
 - `image_generation_logs`
 - `canvas_image_tasks`
 - `canvas_audio_tasks`
@@ -154,8 +153,8 @@ S3/R2 与 WebDAV 共用的媒体文件索引表，不保存画布、素材列表
 | `model` | string | 模型名称 |
 | `channel_id` | string | 模型渠道 ID |
 | `channel_name` | string | 模型渠道名称 |
-| `source` | string | 任务来源：`video-workbench`、`canvas`、`workflow` |
-| `source_id` | string | 来源内 ID，画布任务记录画布节点 ID，视频创作台为空 |
+| `source` | string | 任务来源：`canvas`、`workflow` |
+| `source_id` | string | 来源内 ID，画布任务记录画布节点 ID |
 | `upstream_task_id` | string | 上游任务 ID |
 | `workflow_ref` | text | 仅新工作流任务使用的渠道/条目精确引用；旧视频任务为空 |
 | `upstream_video_id` | string | 上游视频 ID，例如 Agnes 的 `video_...` |
@@ -177,27 +176,9 @@ S3/R2 与 WebDAV 共用的媒体文件索引表，不保存画布、素材列表
 
 后台轮询器按 `status + created_at` 查询未完成任务；旧数据库中如果残留废弃列，不再参与代码查询。
 
-### video_generation_logs
-
-视频创作台成果历史表。该表保存视频生成成果卡片的完整 JSON，并用独立字段做去重、软删除和查询；它不是运行态轮询表，运行态仍由 `video_tasks` 负责。
-
-| 字段 | 类型 | 说明 |
-| --- | --- | --- |
-| `id` | string | 主键，对应前端生成记录 ID |
-| `workspace_id` | string | 共享工作区 ID |
-| `task_id` | string | 后端或上游视频任务 ID |
-| `video_id` | string | 上游视频 ID 或生成结果 ID |
-| `status` | string | 记录状态：`生成中`、`成功`、`失败` |
-| `payload_json` | text | 完整成果卡片 JSON。删除记录会清空该字段 |
-| `created_at` | string | 创建时间 |
-| `updated_at` | string | 更新时间 |
-| `deleted_at` | string | 软删除时间，空字符串表示未删除 |
-
-删除成果记录时只软删除当前工作区对应记录，并清空该行 `payload_json`；软删除记录保留 7 天用于阻止旧浏览器缓存把已删除记录恢复回来。
-
 ### image_generation_logs
 
-生图工作台成果历史表。当前先提供后端表和接口，前端生图工作台后续再接入；字段设计和软删除策略与 `video_generation_logs` 一致。
+图片生成与创意工作流成果历史表。该表保存完整 JSON，并用独立字段做去重、软删除和查询。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
@@ -213,7 +194,7 @@ S3/R2 与 WebDAV 共用的媒体文件索引表，不保存画布、素材列表
 
 ### canvas_image_tasks
 
-画布图片生成任务表。只用于画布节点生成恢复，不影响生图工作台原接口。
+画布图片生成任务表，用于画布节点生成恢复。
 
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |

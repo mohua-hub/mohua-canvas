@@ -31,7 +31,8 @@ export async function fetchWorkspaceConfig() {
 }
 
 export async function syncWorkspaceModelConfig(config: AiConfig, workflowChannels?: WorkflowChannelData[]) {
-    return apiPost<WorkspaceConfigPayload>("/api/v1/config/model", { config: workflowChannels === undefined ? config : { ...config, workflowChannels } });
+    const cleanConfig = Object.fromEntries(Object.entries(config).filter(([key]) => !["channelMode", "baseUrl", "apiKey", "localChannels", "publicChannels"].includes(key)));
+    return apiPost<WorkspaceConfigPayload>("/api/v1/config/model", { config: workflowChannels === undefined ? cleanConfig : { ...cleanConfig, workflowChannels } });
 }
 
 export type CustomStorageProviders = {
@@ -106,10 +107,6 @@ export async function draftWorkspaceWorkflow<T>(
         scope: "private" | "public";
         model?: string;
         channelId?: string;
-        channelMode?: "remote" | "local";
-        protocol?: string;
-        baseUrl?: string;
-        apiKey?: string;
         references?: string[];
     },
 ) {

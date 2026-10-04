@@ -14,44 +14,6 @@ import (
 
 const generationLogLimit = 1000
 
-func CurrentWorkspaceVideoGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
-	workspaceID := WorkspaceID
-	cleanupGenerationLogs()
-	logs, err := repository.ListVideoGenerationLogs(workspaceID, generationLogLimit)
-	if err != nil {
-		return nil, err
-	}
-	return videoGenerationPayloads(logs), nil
-}
-
-func SaveCurrentWorkspaceVideoGenerationLogs(ctx context.Context, raws []json.RawMessage) ([]json.RawMessage, error) {
-	workspaceID := WorkspaceID
-	cleanupGenerationLogs()
-	logs := make([]model.VideoGenerationLog, 0, len(raws))
-	for _, raw := range raws {
-		log := videoGenerationLogFromPayload(raw)
-		if log.ID != "" {
-			logs = append(logs, log)
-		}
-	}
-	if err := repository.UpsertVideoGenerationLogs(workspaceID, logs); err != nil {
-		return nil, err
-	}
-	return CurrentWorkspaceVideoGenerationLogs(ctx)
-}
-
-func DeleteCurrentWorkspaceVideoGenerationLog(ctx context.Context, id string) error {
-	workspaceID := WorkspaceID
-	cleanupGenerationLogs()
-	return repository.SoftDeleteVideoGenerationLog(workspaceID, strings.TrimSpace(id), now())
-}
-
-func DeleteCurrentWorkspaceVideoGenerationLogs(ctx context.Context, ids []string) error {
-	workspaceID := WorkspaceID
-	cleanupGenerationLogs()
-	return repository.SoftDeleteVideoGenerationLogs(workspaceID, ids, now())
-}
-
 func CurrentWorkspaceImageGenerationLogs(ctx context.Context) ([]json.RawMessage, error) {
 	workspaceID := WorkspaceID
 	cleanupGenerationLogs()
@@ -93,16 +55,6 @@ func DeleteCurrentWorkspaceImageGenerationLogs(ctx context.Context, ids []string
 	return repository.SoftDeleteImageGenerationLogs(workspaceID, ids, now())
 }
 
-func videoGenerationPayloads(logs []model.VideoGenerationLog) []json.RawMessage {
-	result := make([]json.RawMessage, 0, len(logs))
-	for _, log := range logs {
-		if strings.TrimSpace(log.PayloadJSON) != "" {
-			result = append(result, json.RawMessage(log.PayloadJSON))
-		}
-	}
-	return result
-}
-
 func imageGenerationPayloads(logs []model.ImageGenerationLog) []json.RawMessage {
 	result := make([]json.RawMessage, 0, len(logs))
 	for _, log := range logs {
@@ -111,27 +63,6 @@ func imageGenerationPayloads(logs []model.ImageGenerationLog) []json.RawMessage 
 		}
 	}
 	return result
-}
-
-func videoGenerationLogFromPayload(raw json.RawMessage) model.VideoGenerationLog {
-	record := parseGenerationLogRecord(raw)
-	task := generationLogRecord(record["task"])
-	video := generationLogRecord(record["video"])
-	current := now()
-	createdAt := generationLogCreatedAt(record)
-	if createdAt == "" {
-		createdAt = current
-	}
-	return model.VideoGenerationLog{
-		ID:          generationLogString(record["id"]),
-		TaskID:      firstGenerationLogValue(generationLogString(task["id"]), generationLogString(task["task_id"]), generationLogString(record["taskId"])),
-		VideoID:     firstGenerationLogValue(generationLogString(task["video_id"]), generationLogString(video["id"]), generationLogString(record["videoId"])),
-		Status:      generationLogString(record["status"]),
-		PayloadJSON: string(raw),
-		CreatedAt:   createdAt,
-		UpdatedAt:   current,
-		DeletedAt:   "",
-	}
 }
 
 func imageGenerationLogFromPayload(raw json.RawMessage) model.ImageGenerationLog {
@@ -217,7 +148,6 @@ func firstGenerationLogValue(values ...string) string {
 
 func cleanupGenerationLogs() {
 	before := time.Now().Add(-7 * 24 * time.Hour).Format(time.RFC3339)
-	_ = repository.CleanupDeletedVideoGenerationLogs(before)
 	_ = repository.CleanupDeletedImageGenerationLogs(before)
 }
 

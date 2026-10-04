@@ -12,10 +12,9 @@ import {
 function configFor(model: string, protocol: ModelChannelProtocol = "openai", name = "custom"): AiConfig {
     return {
         ...defaultConfig,
-        channelMode: "local", model, videoModel: model, imageModel: "", audioModel: "", textModel: "",
+        model, videoModel: model, imageModel: "", audioModel: "", textModel: "",
         activeChannelId: "chosen", videoChannelId: "chosen", imageChannelId: "", audioChannelId: "", textChannelId: "",
-        models: [model], publicChannels: [],
-        localChannels: [{ id: "chosen", protocol, name, baseUrl: "https://proxy.example", apiKey: "local-key", models: [model] }],
+        models: [model], publicChannels: [{ id: "chosen", protocol, name, baseUrl: "https://proxy.example", models: [model], weight: 1, timeout: 60, enabled: true, remark: "" }],
     };
 }
 
@@ -24,11 +23,10 @@ test("Kling panel matching keeps channel descriptions distinct from protocol sel
     assert.equal(isAPIMartKlingV3Config(configFor(model, "apimart"), model), false);
     assert.equal(isAPIMartKlingV3Config(configFor(model, "openai", "APIMart channel"), model), true);
     const byURL = configFor(model);
-    byURL.localChannels[0].baseUrl = "https://api.apimart.ai/v1";
+    byURL.publicChannels[0].baseUrl = "https://api.apimart.ai/v1";
     assert.equal(isAPIMartKlingV3Config(byURL, model), true);
     const remote = configFor(model);
-    remote.channelMode = "remote";
-    remote.publicChannels = [{ id: "chosen", protocol: "openai", models: [model], remark: "APIMART" }];
+    remote.publicChannels[0].remark = "APIMART";
     assert.equal(isAPIMartKlingV3Config(remote, model), true);
     assert.equal(isAPIMartKlingV3Config(remote, "kling-v3-extra"), false);
 });
@@ -36,7 +34,7 @@ test("Kling panel matching keeps channel descriptions distinct from protocol sel
 test("same model on different channels retains the selected channel identity", () => {
     const model = "kling-v3";
     const config = configFor(model);
-    config.localChannels.unshift({ ...config.localChannels[0], id: "other", name: "APIMart" });
+    config.publicChannels.unshift({ ...config.publicChannels[0], id: "other", name: "APIMart" });
     assert.equal(isAPIMartKlingV3Config(config, model), false);
     config.videoChannelId = "other";
     assert.equal(isAPIMartKlingV3Config(config, model), true);

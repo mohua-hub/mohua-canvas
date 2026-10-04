@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { Settings2 } from "lucide-react";
 import { Button } from "antd";
 
-import { ImageSettingsPanel, imageQualityLabel, imageSizeLabel } from "@/components/image-settings-panel";
+import { ImageSettingsPanel, imageQualityLabel, imageResolutionLabel, imageSizeLabel } from "@/components/image-settings-panel";
 import { canvasThemes } from "@/lib/canvas-theme";
 import { isKIESeedreamLayerDecompositionModel } from "@/lib/kie-models";
 import { useThemeStore } from "@/stores/use-theme-store";
@@ -74,7 +74,7 @@ export function CanvasImageSettingsPopover({ config, onConfigChange, onOpenChang
                     <span className="truncate">
                         {effectiveShowSize ? (
                             <>
-                                {imageQualityLabel(quality)} · {imageSizeLabel(activeSize)}
+                                {imageQualityLabel(quality)} · {imageResolutionLabel(config.imageResolution)} · {imageSizeLabel(activeSize)}
                                 {effectiveShowCount ? <> · {count} 张</> : null}
                             </>
                         ) : (

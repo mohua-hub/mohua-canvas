@@ -22,12 +22,11 @@ description: settings 表中 public 和 private 配置结构说明
 | `modelChannel.defaultTextModel` | string | 默认文本模型 |
 | `modelChannel.systemPrompt` | string | 系统提示词 |
 | `modelChannel.systemPrompts` | object | image、video、text、workflow、workflowAgent 的系统提示词 |
-| `modelChannel.allowCustomChannel` | boolean | 是否启用本地自定义渠道，默认开启 |
 | `storage.mode` | string | 根据存储配置识别的模式 |
 | `storage.allowCustomProvider` | boolean | 是否启用自定义 S3/R2 或 WebDAV |
 | `storage.useGlobalProvider` | boolean | 是否启用全局存储 |
 
-通用配置不再包含账号认证、用户权限或计费项。后端可用时使用 `/api/v1/*` 代理系统渠道或已同步的本地渠道；后端不可用时使用浏览器本地渠道直接请求上游。
+通用配置不再包含账号认证、用户权限或计费项。AI 渠道和密钥保存在本机 Go 服务的 `settings.private.channels`；所有 AI 请求均经本机 `/api/v1/*` 接口由 Go 服务转发，不支持浏览器直连渠道。
 
 ## private.value
 
@@ -36,7 +35,6 @@ description: settings 表中 public 和 private 配置结构说明
 | `channels` | object[] | 系统模型和工作流渠道 |
 | `promptSync.enabled` | boolean | 定时同步远程提示词，默认开启 |
 | `promptSync.cron` | string | 默认 `0 0 * * *` |
-| `aiLog.localDirectReportEnabled` | boolean | 本地直连日志上报，默认关闭 |
 | `aiLog.cleanup` | object | enabled、retentionDays、cron；默认保留 14 天 |
 | `storage.allowCustomProvider` | boolean | 自定义存储开关 |
 | `storage.useGlobalProvider` | boolean | 全局存储开关 |
@@ -53,6 +51,6 @@ description: settings 表中 public 和 private 配置结构说明
 
 ## 工作区配置
 
-自定义渠道、偏好、工作流集合及自定义存储保存在 `workspace_configs`，唯一工作区 ID 为 `default`。使用 `/api/v1/config` 读取，`/api/v1/config/model` 和 `/api/v1/config/storage` 保存。
+模型选择偏好、工作流集合及自定义存储保存在 `workspace_configs`，唯一工作区 ID 为 `default`。使用 `/api/v1/config` 读取，`/api/v1/config/model` 和 `/api/v1/config/storage` 保存。工作区配置不保存渠道凭据。
 
-本地工作流集合使用 `localforage` 保存，连接后端时同步到共享工作区。S3/R2 和 WebDAV 的配置同步开关分别为 `syncStorageConfig`、`syncWebDAVStorageConfig`。上游模型 API Key 保存在浏览器本地，开启同步后也保存在后端工作区配置中；WebDAV、S3 和上游服务的鉴权凭证继续按原协议使用。
+个人工作流集合使用 `localforage` 保存，连接后端时同步到共享工作区，并关联本机设置中已配置的渠道。S3/R2 和 WebDAV 的配置同步开关分别为 `syncStorageConfig`、`syncWebDAVStorageConfig`。AI 渠道密钥只存放在本机 Go 服务设置中；WebDAV 与 S3 的鉴权凭证继续按各自配置使用。

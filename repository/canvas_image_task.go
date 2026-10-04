@@ -40,49 +40,6 @@ func GetWorkspaceCanvasImageTask(workspaceID string, id string) (model.CanvasIma
 	return task, true, nil
 }
 
-func ListWorkspaceCanvasImageTasks(workspaceID string, sources []string, limit int) ([]model.CanvasImageTask, error) {
-	db, err := DB()
-	if err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = 100
-	}
-	var tasks []model.CanvasImageTask
-	query := db.Where("workspace_id = ?", workspaceID)
-	if len(sources) > 0 {
-		query = query.Where("source IN ?", sources)
-	}
-	err = query.
-		Where("status IN ?", []string{"queued", "processing", "running", "in_progress"}).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&tasks).Error
-	return tasks, err
-}
-
-func BatchWorkspaceCanvasImageTasks(workspaceID string, ids []string) ([]model.CanvasImageTask, error) {
-	db, err := DB()
-	if err != nil {
-		return nil, err
-	}
-	keys := uniqueTrimmedValues(ids...)
-	if len(keys) == 0 {
-		return []model.CanvasImageTask{}, nil
-	}
-	var tasks []model.CanvasImageTask
-	err = db.Where("workspace_id = ? AND id IN ?", workspaceID, keys).Find(&tasks).Error
-	return tasks, err
-}
-
-func DeleteWorkspaceCanvasImageTask(workspaceID string, id string) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	return db.Where("workspace_id = ? AND id = ?", workspaceID, strings.TrimSpace(id)).Delete(&model.CanvasImageTask{}).Error
-}
-
 func HasActiveCanvasImageTasks() (bool, error) {
 	db, err := DB()
 	if err != nil {

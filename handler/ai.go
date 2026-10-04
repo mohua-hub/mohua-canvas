@@ -17,22 +17,14 @@ import (
 	"github.com/tigerowo/infinite-canvas/service"
 )
 
-const workspaceModelChannelHeader = "X-Local-Model-Channel-ID"
-
-func selectAIRequestChannel(workspaceID string, modelName string, channelID string, localChannelID string, publicOnly bool) (model.ModelChannel, string, error) {
-	localChannelID = strings.TrimSpace(localChannelID)
-	if localChannelID != "" {
-		channel, err := service.SelectLocalModelChannelForModel(workspaceID, modelName, localChannelID)
-		return channel, localChannelID, err
-	}
-	channel, err := service.SelectModelChannelForModel(modelName, channelID, publicOnly)
-	return channel, "", err
+func selectAIRequestChannel(modelName string, channelID string, publicOnly bool) (model.ModelChannel, error) {
+	return service.SelectModelChannelForModel(modelName, channelID, publicOnly)
 }
 
 func failAIChannelSelect(w http.ResponseWriter, err error, fallback string) {
 	message := strings.TrimSpace(err.Error())
 	switch message {
-	case "缺少工作区标识", "缺少模型名称", "缺少模型渠道", "本地渠道不存在", "本地渠道配置不完整", "本地渠道不支持该模型", "指定模型渠道不可用", "模型未开放":
+	case "缺少模型名称", "缺少模型渠道", "指定模型渠道不可用", "模型未开放":
 		Fail(w, message)
 	default:
 		Fail(w, fallback)
@@ -99,7 +91,7 @@ func proxyAIGetRequest(w http.ResponseWriter, r *http.Request, path string) {
 	if strings.TrimSpace(modelName) == "" {
 		modelName = "Agnes-Video-V2.0"
 	}
-	channel, _, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), false)
+	channel, err := selectAIRequestChannel(modelName, r.Header.Get("X-Model-Channel-ID"), false)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
@@ -124,7 +116,7 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		return
 	}
 	workspaceID := service.WorkspaceID
-	channel, _, err := selectAIRequestChannel(workspaceID, modelName, r.Header.Get("X-Model-Channel-ID"), r.Header.Get(workspaceModelChannelHeader), true)
+	channel, err := selectAIRequestChannel(modelName, r.Header.Get("X-Model-Channel-ID"), true)
 	if err != nil {
 		log.Printf("AI proxy select channel failed: model=%s err=%v", modelName, err)
 		failAIChannelSelect(w, err, "AI 接口请求失败")
@@ -161,8 +153,7 @@ func proxyAIRequest(w http.ResponseWriter, r *http.Request, path string) {
 		Method:          http.MethodPost,
 		Model:           modelName,
 		Channel:         channel,
-		WorkspaceID:          workspaceID,
-		
+		WorkspaceID:     workspaceID,
 		RequestBody:     summarizeAIRequest(body, contentType),
 	}, nil)
 }
@@ -260,8 +251,7 @@ func saveAIProxyLog(context aiLogContext, status int, responseBody string, error
 		}
 	}
 	service.SaveAICallLog(service.AICallLogInput{
-		WorkspaceID:          context.WorkspaceID,
-		
+		WorkspaceID:     context.WorkspaceID,
 		Endpoint:        context.Endpoint,
 		Method:          context.Method,
 		Model:           context.Model,

@@ -36,39 +36,6 @@ func GetWorkspaceVideoTask(workspaceID string, id string) (model.VideoTask, bool
 	return task, true, nil
 }
 
-func ListWorkspaceVideoTasks(workspaceID string, source string, limit int) ([]model.VideoTask, error) {
-	db, err := DB()
-	if err != nil {
-		return nil, err
-	}
-	if limit <= 0 {
-		limit = 100
-	}
-	var tasks []model.VideoTask
-	query := db.Where("workspace_id = ?", workspaceID)
-	if source != "" {
-		if source == "video-workbench" {
-			query = query.Where("(source = ? OR source = '' OR source IS NULL)", source)
-		} else {
-			query = query.Where("source = ?", source)
-		}
-	}
-	err = query.
-		Where("status IN ?", []string{"queued", "in_progress", "processing", "running"}).
-		Order("created_at DESC").
-		Limit(limit).
-		Find(&tasks).Error
-	return tasks, err
-}
-
-func DeleteWorkspaceVideoTask(workspaceID string, id string) error {
-	db, err := DB()
-	if err != nil {
-		return err
-	}
-	return db.Where("workspace_id = ? AND (id = ? OR upstream_task_id = ? OR upstream_video_id = ?)", workspaceID, id, id, id).Delete(&model.VideoTask{}).Error
-}
-
 func ListDueVideoTasks(limit int) ([]model.VideoTask, error) {
 	db, err := DB()
 	if err != nil {

@@ -30,7 +30,6 @@ type VideoTaskCreateInput struct {
 	WorkspaceID          string
 	Model           string
 	ChannelID       string
-	LocalChannelID   string
 	ChannelName     string
 	WorkflowRef     string
 	Source          string
@@ -73,7 +72,6 @@ func CreateVideoTask(input VideoTaskCreateInput) (model.VideoTask, error) {
 		WorkspaceID:          strings.TrimSpace(input.WorkspaceID),
 		Model:           strings.TrimSpace(input.Model),
 		ChannelID:       strings.TrimSpace(input.ChannelID),
-		LocalChannelID:   strings.TrimSpace(input.LocalChannelID),
 		ChannelName:     strings.TrimSpace(input.ChannelName),
 		WorkflowRef:     input.WorkflowRef,
 		Source:          normalizeVideoTaskSource(input.Source),
@@ -112,29 +110,12 @@ func GetWorkspaceVideoTask(workspaceID string, id string) (model.VideoTask, bool
 	return repository.GetWorkspaceVideoTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
 }
 
-func ListWorkspaceVideoTasks(workspaceID string, source string, limit int) ([]map[string]any, error) {
-	tasks, err := repository.ListWorkspaceVideoTasks(strings.TrimSpace(workspaceID), normalizeVideoTaskSource(source), limit)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]map[string]any, 0, len(tasks))
-	for _, task := range tasks {
-		result = append(result, VideoTaskResponse(task))
-	}
-	return result, nil
-}
-
-func DeleteWorkspaceVideoTask(workspaceID string, id string) error {
-	return repository.DeleteWorkspaceVideoTask(strings.TrimSpace(workspaceID), strings.TrimSpace(id))
-}
-
 func VideoTaskResponse(task model.VideoTask) map[string]any {
 	result := map[string]any{
 		"id":            task.ID,
 		"object":        "video",
 		"model":         task.Model,
 		"channelId":     task.ChannelID,
-		"localChannelId": task.LocalChannelID,
 		"channelName":   task.ChannelName,
 		"source":        task.Source,
 		"source_id":     task.SourceID,
@@ -400,10 +381,8 @@ func normalizeVideoTaskSource(source string) string {
 		return "workflow"
 	case "canvas":
 		return "canvas"
-	case "video-workbench", "":
-		return "video-workbench"
 	default:
-		return "video-workbench"
+		return "canvas"
 	}
 }
 
