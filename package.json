@@ -1,0 +1,47 @@
+{
+  "name": "mohua-canvas",
+  "productName": "墨华画布",
+  "version": "0.1.10",
+  "private": true,
+  "description": "本地 AI 无限画布",
+  "license": "AGPL-3.0-only",
+  "author": "mohua-hub",
+  "main": "electron/main/index.cjs",
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "build": "node scripts/build.mjs",
+    "desktop:package": "npm run build && electron-builder --win nsis --x64",
+    "test": "go test ./internal/... && npm run test:renderer",
+    "test:renderer": "tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.9.3",
+    "lucide-react": "^0.468.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.1",
+    "electron": "^40.0.0",
+    "electron-builder": "^26.0.12",
+    "typescript": "^5.9.3",
+    "tsx": "^4.21.0",
+    "vite": "^7.2.2"
+  },
+  "build": {
+    "appId": "com.mohua.canvas",
+    "directories": {"output": "release"},
+    "files": ["dist/renderer/**/*", "electron/**/*", "package.json"],
+    "extraResources": [
+      {"from":"dist/bin", "to":"bin"},
+      {"from":"config/plugins.json", "to":"config/plugins.json"}
+    ],
+    "asar": true,
+    "win": {"icon":"electron/resources/icon.ico", "target":[{"target":"nsis","arch":["x64"]}]},
+    "nsis": {"oneClick":false, "allowToChangeInstallationDirectory":true, "createDesktopShortcut":true}
+  }
+}

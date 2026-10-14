@@ -1,25 +1,21 @@
-# 无限画布
+# 墨华画布
 
-支持图片、视频、音频生成及 RunningHub、ComfyUI 工作流的 AI 创作画布。
+本地 AI 无限画布，使用 Electron、React 和 Go。支持文本、图片、视频、音频节点，连接上游文本生成作品，并管理项目、素材、模型渠道、提示词与 Agent Skill。
 
-项目在本机运行，支持 Windows 桌面端和本机浏览器使用。无需注册或登录；画布与素材保存在浏览器或桌面 WebView 本地，本机 Go 服务使用 SQLite 保存工作区、配置和任务。渠道、提示词、Skill、素材、日志和存储在 `/settings` 设置页管理。
+采用六边形架构和受信插件清单。活动画布由渲染进程管理，业务与持久化由本机 Go 服务负责，供应商调用通过独立适配器接入。项目与素材保存于本机工作空间，渠道密钥受系统安全存储保护。
 
-桌面端可从 [GitHub Releases](https://github.com/mohua-hub/mohua-canvas/releases) 下载安装包，内置前后端，无需安装开发工具。
-
-源码运行需要 Go 1.25、Node.js 22 和 Bun 1.4.2。在项目根目录启动本地服务：
+需要 Node.js 22.12+、npm、Go 1.25+：
 
 ```powershell
-go run .
+npm ci
+npm run dev
 ```
-
-另开终端启动前端：
 
 ```powershell
-cd web
-bun install --frozen-lockfile
-bun run dev
+npm run build
+npm run desktop:package
 ```
 
-访问 `http://127.0.0.1:3000`。默认数据库为 `data/infinite-canvas.db`；需要调整本地端口或路径时，复制 `.env.example` 为 `.env`。
+Windows x64 安装包输出至 release/。本次重构使用新的 workspace-v1 数据目录，不读取旧项目数据。
 
-[快速开始](docs/overview/quick-start.md) · [本地开发](docs/backend/local-development.md) · [桌面端开发与发布](docs/backend/desktop.md) · [文档索引](docs/index.md)
+[文档索引](docs/index.md) · [架构](docs/architecture/design.md) · [开发与打包](docs/development.md)

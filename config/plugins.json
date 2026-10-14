@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "plugins": [
+    {"id":"storage.sqlite","type":"storage","version":"1.0.0","apiVersion":"1","entry":"sqlite","provides":["storage","credentials"],"dependencies":[],"capabilities":[]},
+    {"id":"media.local","type":"media","version":"1.0.0","apiVersion":"1","entry":"local-media","provides":["media"],"dependencies":[],"capabilities":[]},
+    {"id":"provider.openai","type":"provider","version":"1.0.0","apiVersion":"1","entry":"openai","provides":["model"],"dependencies":["storage.sqlite"],"capabilities":["text","image","video","audio"]},
+    {"id":"provider.gemini","type":"provider","version":"1.0.0","apiVersion":"1","entry":"gemini","provides":["model"],"dependencies":["storage.sqlite"],"capabilities":["text","image"]}
+  ]
+}

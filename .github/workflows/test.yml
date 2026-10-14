@@ -1,23 +1,31 @@
-name: Test
+name: Review
 
 on:
   push:
-    branches:
-      - main
-      - develop
-
+    branches: [main]
   pull_request:
 
-jobs:
-  backend-test:
-    runs-on: ubuntu-latest
+permissions:
+  contents: read
 
+jobs:
+  contracts:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version-file: go.mod
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - name: Business and adapter behavior
+        run: go test ./internal/...
+      - name: Renderer and bridge contracts
+        run: npm run test:renderer
 
-      - name: Run Go Test
-        run: go test ./...
